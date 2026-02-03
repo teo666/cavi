@@ -105,6 +105,33 @@ impl Wire {
         self.link_target_distance = radius * 3.0;
     }
 
+    /// Adds a new node at the specified position
+    pub fn add_node(&mut self, x: f32, y: f32, fixed: bool) {
+        let node = Node::new_no_vel(x, y, fixed);
+        self.nodes.push(node);
+        self.invalidate();
+    }
+
+    /// Adds a new node at a specific index
+    pub fn add_node_at(&mut self, index: usize, x: f32, y: f32, fixed: bool) {
+        if index <= self.nodes.len() {
+            let node = Node::new_no_vel(x, y, fixed);
+            self.nodes.insert(index, node);
+            self.invalidate();
+        }
+    }
+
+    /// Removes a node at the specified index
+    pub fn remove_node(&mut self, index: usize) -> bool {
+        if index < self.nodes.len() && self.nodes.len() > 2 {
+            self.nodes.remove(index);
+            self.invalidate();
+            true
+        } else {
+            false // Can't remove if it would leave less than 2 nodes
+        }
+    }
+
     /// Gets the render type (0 = segments, 1 = bezier)
     pub fn get_render_type(&self) -> u8 {
         self.render_type

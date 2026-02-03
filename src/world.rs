@@ -88,6 +88,16 @@ impl World {
         self.wires.get(index).cloned()
     }
 
+    /// Deletes a wire by index
+    pub fn delete_wire(&mut self, index: usize) -> bool {
+        if index < self.wires.len() {
+            self.wires.remove(index);
+            true
+        } else {
+            false
+        }
+    }
+
     /// Gets a node from a specific wire
     pub fn get_wire_node(&self, wire_idx: usize, node_idx: usize) -> Option<Node> {
         self.wires.get(wire_idx).and_then(|wire| wire.get_node(node_idx))
@@ -133,6 +143,36 @@ impl World {
         self.wires.get(wire_idx)
             .map(|wire| wire.get_radius())
             .unwrap_or(0.0)
+    }
+
+    /// Sets the radius of a specific wire
+    pub fn set_wire_radius(&mut self, wire_idx: usize, radius: f32) {
+        if let Some(wire) = self.wires.get_mut(wire_idx) {
+            wire.set_radius(radius);
+        }
+    }
+
+    /// Adds a node to a specific wire
+    pub fn add_wire_node(&mut self, wire_idx: usize, x: f32, y: f32, fixed: bool) {
+        if let Some(wire) = self.wires.get_mut(wire_idx) {
+            wire.add_node(x, y, fixed);
+        }
+    }
+
+    /// Adds a node to a specific wire at a specific index
+    pub fn add_wire_node_at(&mut self, wire_idx: usize, node_idx: usize, x: f32, y: f32, fixed: bool) {
+        if let Some(wire) = self.wires.get_mut(wire_idx) {
+            wire.add_node_at(node_idx, x, y, fixed);
+        }
+    }
+
+    /// Removes a node from a specific wire
+    pub fn remove_wire_node(&mut self, wire_idx: usize, node_idx: usize) -> bool {
+        if let Some(wire) = self.wires.get_mut(wire_idx) {
+            wire.remove_node(node_idx)
+        } else {
+            false
+        }
     }
 
     /// Sets the position of the first node (start) of a wire
@@ -224,6 +264,16 @@ impl World {
     /// Gets the acceleration vector
     pub fn get_acceleration(&self) -> Point {
         self.acceleration
+    }
+
+    /// Gets the x component of acceleration
+    pub fn get_acceleration_x(&self) -> f32 {
+        self.acceleration.x
+    }
+
+    /// Gets the y component of acceleration
+    pub fn get_acceleration_y(&self) -> f32 {
+        self.acceleration.y
     }
 
     /// Sets the acceleration vector
