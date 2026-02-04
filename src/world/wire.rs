@@ -1,11 +1,11 @@
 use wasm_bindgen::prelude::*;
-use crate::world::point::Point as Point;
-use crate::world::node::Node as Node;
+use crate::world::point::WasmPoint as WasmPoint;
+use crate::world::node::WasmNode as WasmNode;
 
 #[wasm_bindgen]
 #[derive(Clone)]
-pub struct Wire {
-    nodes: Vec<Node>,
+pub struct WasmWire {
+    nodes: Vec<WasmNode>,
     pub iterations: u32,
     pub radius: f32,
     pub link_target_distance: f32,
@@ -13,15 +13,15 @@ pub struct Wire {
 }
 
 #[wasm_bindgen]
-impl Wire {
+impl WasmWire {
     #[wasm_bindgen(constructor)]
-    pub fn new() -> Wire {
+    pub fn new() -> WasmWire {
         let nodes = (0..30)
             .map(|i| {
-                Node::new_no_vel(i as f32 * 5.0 + 50f32, 10f32 + 50f32,  i == 0 || i == 29)
+                WasmNode::new_no_vel(i as f32 * 5.0 + 50f32, 10f32 + 50f32,  i == 0 || i == 29)
             })
             .collect();
-        let mut w = Wire {
+        let mut w = WasmWire {
             iterations: 10,
             nodes,
             link_target_distance: 7.0,
@@ -33,13 +33,13 @@ impl Wire {
     }
 
     /// Creates a wire between two points with specified radius
-    pub fn new_wire(xs: f32, ys: f32, xe: f32, ye: f32, radius: f32) -> Wire {
-        let mut nodes = vec![Node::new_no_vel(xs, ys, true), Node::new_no_vel(xe, ye, true)];
-        let optimal_len = Wire::optimal_length(nodes[0].get_position(), nodes[nodes.len() - 1].get_position(), radius);
+    pub fn new_wire(xs: f32, ys: f32, xe: f32, ye: f32, radius: f32) -> WasmWire {
+        let mut nodes = vec![WasmNode::new_no_vel(xs, ys, true), WasmNode::new_no_vel(xe, ye, true)];
+        let optimal_len = WasmWire::optimal_length(nodes[0].get_position(), nodes[nodes.len() - 1].get_position(), radius);
         for _i in 1..optimal_len {
-            nodes.insert(1, Node::new_no_vel(100.0, 110.0, false))
+            nodes.insert(1, WasmNode::new_no_vel(100.0, 110.0, false))
         }
-        let mut w = Wire {
+        let mut w = WasmWire {
             iterations: 10,
             nodes,
             link_target_distance: radius * 3.0,
@@ -51,20 +51,20 @@ impl Wire {
     }
 
     /// Creates a wire with specific node count and link target distance
-    pub fn new_with_count(xs: f32, ys: f32, xe: f32, ye: f32, node_count: usize, link_target: f32, radius: f32, render_type: u8) -> Wire {
+    pub fn new_with_count(xs: f32, ys: f32, xe: f32, ye: f32, node_count: usize, link_target: f32, radius: f32, render_type: u8) -> WasmWire {
         if node_count < 2 {
             panic!("Wire must have at least 2 nodes");
         }
         
         // Create start and end nodes as fixed points
-        let mut nodes = vec![Node::new_no_vel(xs, ys, true), Node::new_no_vel(xe, ye, true)];
+        let mut nodes = vec![WasmNode::new_no_vel(xs, ys, true), WasmNode::new_no_vel(xe, ye, true)];
         
         // Insert movable nodes in between
         for _i in 1..node_count - 1 {
-            nodes.insert(1, Node::new_no_vel(100.0, 110.0, false))
+            nodes.insert(1, WasmNode::new_no_vel(100.0, 110.0, false))
         }
         
-        let mut w = Wire {
+        let mut w = WasmWire {
             iterations: 10,
             nodes,
             link_target_distance: link_target,
@@ -85,7 +85,7 @@ impl Wire {
     }
 
     /// Gets a specific node by index
-    pub fn get_node(&self, index: usize) -> Option<Node> {
+    pub fn get_node(&self, index: usize) -> Option<WasmNode> {
         self.nodes.get(index).copied()
     }
 
@@ -107,7 +107,7 @@ impl Wire {
 
     /// Adds a new node at the specified position
     pub fn add_node(&mut self, x: f32, y: f32, fixed: bool) {
-        let node = Node::new_no_vel(x, y, fixed);
+        let node = WasmNode::new_no_vel(x, y, fixed);
         self.nodes.push(node);
         self.invalidate();
     }
@@ -115,7 +115,7 @@ impl Wire {
     /// Adds a new node at a specific index
     pub fn add_node_at(&mut self, index: usize, x: f32, y: f32, fixed: bool) {
         if index <= self.nodes.len() {
-            let node = Node::new_no_vel(x, y, fixed);
+            let node = WasmNode::new_no_vel(x, y, fixed);
             self.nodes.insert(index, node);
             self.invalidate();
         }
@@ -164,18 +164,18 @@ impl Wire {
         let mut new_nodes = Vec::with_capacity(new_count);
         
         // Add start node
-        new_nodes.push(Node::new_no_vel(start_pos.x, start_pos.y, start_fixed));
+        new_nodes.push(WasmNode::new_no_vel(start_pos.x, start_pos.y, start_fixed));
         
         // Add intermediate nodes evenly spaced
         for i in 1..new_count - 1 {
             let t = i as f32 / (new_count - 1) as f32;
             let x = start_pos.x + (end_pos.x - start_pos.x) * t;
             let y = start_pos.y + (end_pos.y - start_pos.y) * t;
-            new_nodes.push(Node::new_no_vel(x, y, false)); // Intermediate nodes are movable
+            new_nodes.push(WasmNode::new_no_vel(x, y, false)); // Intermediate nodes are movable
         }
         
         // Add end node
-        new_nodes.push(Node::new_no_vel(end_pos.x, end_pos.y, end_fixed));
+        new_nodes.push(WasmNode::new_no_vel(end_pos.x, end_pos.y, end_fixed));
 
         // Replace nodes
         self.nodes = new_nodes;
@@ -183,13 +183,13 @@ impl Wire {
     }
 
     /// Gets the start point of the wire
-    pub fn get_start(&self) -> Point {
-        self.nodes.first().map(|n| n.get_position()).unwrap_or(Point::zero())
+    pub fn get_start(&self) -> WasmPoint {
+        self.nodes.first().map(|n| n.get_position()).unwrap_or(WasmPoint::zero())
     }
 
     /// Gets the end point of the wire
-    pub fn get_end(&self) -> Point {
-        self.nodes.last().map(|n| n.get_position()).unwrap_or(Point::zero())
+    pub fn get_end(&self) -> WasmPoint {
+        self.nodes.last().map(|n| n.get_position()).unwrap_or(WasmPoint::zero())
     }
 
     /// Sets the start point position (if it's fixed)
@@ -225,7 +225,7 @@ impl Wire {
     }
 
     /// Checks collision with a point and adjusts nodes
-    pub fn check_collision(&mut self, point: &Point, pointer_radius: f32) {
+    pub fn check_collision(&mut self, point: &WasmPoint, pointer_radius: f32) {
         let mut reset = false;
         let rad = self.radius + pointer_radius;
         for node in &mut self.nodes {
@@ -248,7 +248,7 @@ impl Wire {
     }
 
     /// Updates the wire physics simulation
-    pub fn update(&mut self, dt: f32, friction: f32, acceleration: Point) {
+    pub fn update(&mut self, dt: f32, friction: f32, acceleration: WasmPoint) {
         for node in self.nodes.iter_mut() {
             node.update_position(dt, friction, acceleration);
         }
@@ -262,7 +262,7 @@ impl Wire {
             if dist == 0.0 {
                 dist = 1.0
             }
-            let fact = Point {
+            let fact = WasmPoint {
                 x: dp.x / dist,
                 y: dp.y / dist,
             };
@@ -310,7 +310,7 @@ impl Wire {
     }
 
     /// Checks collision with mouse/pointer position
-    pub fn check_mouse_collision(&mut self, mouse: Point, mouse_radius: f32) {
+    pub fn check_mouse_collision(&mut self, mouse: WasmPoint, mouse_radius: f32) {
         let mut reset = false;
         if self.intersect(&mouse) {
             for n in self.nodes.iter_mut() {
@@ -338,20 +338,20 @@ impl Wire {
         self.iterations = 0;
     }
 
-    pub fn optimal_length(start: Point, end: Point, node_radius: f32) -> usize {
+    pub fn optimal_length(start: WasmPoint, end: WasmPoint, node_radius: f32) -> usize {
         let d = (start.x - end.x).hypot(start.y - end.y) / 4.0 / node_radius * 3.6;
         d.floor() as usize
     }
 }
 
 // Non-wasm methods
-impl Wire {
+impl WasmWire {
     /// Returns a reference to the nodes (for internal use by World)
-    pub(crate) fn get_nodes(&self) -> &Vec<Node> {
+    pub(crate) fn get_nodes(&self) -> &Vec<WasmNode> {
         &self.nodes
     }
 
-    fn intersect(&self, _point: &Point) -> bool {
+    fn intersect(&self, _point: &WasmPoint) -> bool {
         // TODO: implement proper collision detection with the wire
         true
     }

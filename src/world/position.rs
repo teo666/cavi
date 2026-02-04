@@ -1,36 +1,36 @@
 use std::fmt;
 use wasm_bindgen::prelude::*;
-use crate::world::point::Point as Point;
+use crate::world::point::WasmPoint as WasmPoint;
 
 #[wasm_bindgen]
 #[derive(Clone, Copy, Debug)]
-pub struct Position {
-    pub curr: Point,
-    pub old: Point,
+pub struct WasmPosition {
+    pub curr: WasmPoint,
+    pub old: WasmPoint,
 }
 
 #[wasm_bindgen]
-impl Position {
+impl WasmPosition {
     #[wasm_bindgen(constructor)]
-    pub fn new(x: f32, y: f32) -> Position {
-        let point = Point::new(x, y);
-        Position {
+    pub fn new(x: f32, y: f32) -> WasmPosition {
+        let point = WasmPoint::new(x, y);
+        WasmPosition {
             curr: point,
             old: point,
         }
     }
 
     /// Creates a Position with different current and old positions
-    pub fn new_with_old(curr_x: f32, curr_y: f32, old_x: f32, old_y: f32) -> Position {
-        Position {
-            curr: Point::new(curr_x, curr_y),
-            old: Point::new(old_x, old_y),
+    pub fn new_with_old(curr_x: f32, curr_y: f32, old_x: f32, old_y: f32) -> WasmPosition {
+        WasmPosition {
+            curr: WasmPoint::new(curr_x, curr_y),
+            old: WasmPoint::new(old_x, old_y),
         }
     }
 
     /// Creates a Position from two Points
-    pub fn from_points(curr: Point, old: Point) -> Position {
-        Position { curr, old }
+    pub fn from_points(curr: WasmPoint, old: WasmPoint) -> WasmPosition {
+        WasmPosition { curr, old }
     }
 
     /// Returns the current x coordinate
@@ -54,12 +54,12 @@ impl Position {
     }
 
     /// Returns the current position as a Point
-    pub fn get_curr(&self) -> Point {
+    pub fn get_curr(&self) -> WasmPoint {
         self.curr
     }
 
     /// Returns the old position as a Point
-    pub fn get_old(&self) -> Point {
+    pub fn get_old(&self) -> WasmPoint {
         self.old
     }
 
@@ -76,12 +76,12 @@ impl Position {
     }
 
     /// Sets the current position from a Point
-    pub fn set_curr_point(&mut self, point: Point) {
+    pub fn set_curr_point(&mut self, point: WasmPoint) {
         self.curr = point;
     }
 
     /// Sets the old position from a Point
-    pub fn set_old_point(&mut self, point: Point) {
+    pub fn set_old_point(&mut self, point: WasmPoint) {
         self.old = point;
     }
 
@@ -93,13 +93,13 @@ impl Position {
     }
 
     /// Updates the position from a Point
-    pub fn update_point(&mut self, point: Point) {
+    pub fn update_point(&mut self, point: WasmPoint) {
         self.old = self.curr;
         self.curr = point;
     }
 
     /// Returns the velocity (difference between current and old positions)
-    pub fn velocity(&self) -> Point {
+    pub fn velocity(&self) -> WasmPoint {
         self.curr - self.old
     }
 
@@ -110,7 +110,7 @@ impl Position {
 
     /// Integrates the position using Verlet integration
     /// new_pos = curr + (curr - old) * damping + acceleration * dt^2
-    pub fn integrate(&mut self, acceleration: Point, dt: f32, damping: f32) {
+    pub fn integrate(&mut self, acceleration: WasmPoint, dt: f32, damping: f32) {
         let velocity = (self.curr - self.old) * damping;
         let new_pos = self.curr + velocity + acceleration * (dt * dt);
         self.old = self.curr;
@@ -118,7 +118,7 @@ impl Position {
     }
 
     /// Applies a constraint by moving the current position
-    pub fn constrain(&mut self, target: Point) {
+    pub fn constrain(&mut self, target: WasmPoint) {
         self.curr = target;
     }
 
@@ -133,7 +133,7 @@ impl Position {
     }
 }
 
-impl fmt::Display for Position {
+impl fmt::Display for WasmPosition {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "curr: {} old: {}", self.curr, self.old)?;
         Ok(())

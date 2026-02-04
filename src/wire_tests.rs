@@ -1,5 +1,5 @@
-use crate::world::wire::Wire;
-use crate::world::point::Point;
+use crate::world::wire::WasmWire as Wire;
+use crate::world::point::WasmPoint as Point;
 
 #[test]
 fn test_wire_new() {
@@ -8,7 +8,7 @@ fn test_wire_new() {
     assert_eq!(wire.node_count(), 30);
     assert_eq!(wire.iterations, 0);
     assert_eq!(wire.radius, 5.0);
-    assert_eq!(wire.link_target_distance, 1.0);
+    assert_eq!(wire.link_target_distance, 7.0);
 }
 
 #[test]

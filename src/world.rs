@@ -4,37 +4,37 @@ pub mod node;
 pub mod wire;
 
 use wasm_bindgen::prelude::*;
-use crate::world::node::Node;
-use crate::world::point::Point;
-use crate::world::wire::Wire;
+use crate::world::node::WasmNode;
+use crate::world::point::WasmPoint;
+use crate::world::wire::WasmWire;
 
 #[wasm_bindgen]
-pub struct World {
-    wires: Vec<Wire>,
-    mouse: Point,
+pub struct WasmWorld {
+    wires: Vec<WasmWire>,
+    mouse: WasmPoint,
     wire_data_buffer: Vec<f32>,
     // Configuration
     mouse_radius: f32,
     pointer_radius: f32,
     response_coef: f32,
     friction: f32,
-    acceleration: Point,
+    acceleration: WasmPoint,
 }
 
 #[wasm_bindgen]
-impl World {
+impl WasmWorld {
     #[wasm_bindgen(constructor)]
-    pub fn new() -> World {
-        World {
+    pub fn new() -> WasmWorld {
+        WasmWorld {
             wires: Vec::new(),
-            mouse: Point { x: 0.0, y: 0.0 },
+            mouse: WasmPoint { x: 0.0, y: 0.0 },
             wire_data_buffer: Vec::new(),
             // Default configuration values
             mouse_radius: 40.0,
             pointer_radius: 20.0,
             response_coef: 0.75,
             friction: 0.95,
-            acceleration: Point { x: 0.0, y: 10.0 },
+            acceleration: WasmPoint { x: 0.0, y: 10.0 },
         }
     }
 
@@ -84,7 +84,7 @@ impl World {
     }
 
     /// Gets a specific wire by index
-    pub fn get_wire(&self, index: usize) -> Option<Wire> {
+    pub fn get_wire(&self, index: usize) -> Option<WasmWire> {
         self.wires.get(index).cloned()
     }
 
@@ -99,7 +99,7 @@ impl World {
     }
 
     /// Gets a node from a specific wire
-    pub fn get_wire_node(&self, wire_idx: usize, node_idx: usize) -> Option<Node> {
+    pub fn get_wire_node(&self, wire_idx: usize, node_idx: usize) -> Option<WasmNode> {
         self.wires.get(wire_idx).and_then(|wire| wire.get_node(node_idx))
     }
 
@@ -119,17 +119,17 @@ impl World {
 
     /// Adds a default wire to the world
     pub fn add_wire_debug(&mut self) {
-        self.wires.push(Wire::new());
+        self.wires.push(WasmWire::new());
     }
 
     /// Adds a wire between two points with specified radius
     pub fn add_wire(&mut self, xs: f32, ys: f32, xe: f32, ye: f32, radius: f32) {
-        self.wires.push(Wire::new_wire(xs, ys, xe, ye, radius));
+        self.wires.push(WasmWire::new_wire(xs, ys, xe, ye, radius));
     }
 
     /// Adds a wire with specific node count and link target distance
     pub fn add_wire_with_count(&mut self, xs: f32, ys: f32, xe: f32, ye: f32, node_count: usize, link_target: f32, radius: f32, render_type: u8) {
-        self.wires.push(Wire::new_with_count(xs, ys, xe, ye, node_count, link_target, radius, render_type));
+        self.wires.push(WasmWire::new_with_count(xs, ys, xe, ye, node_count, link_target, radius, render_type));
     }
 
     /// Gets the number of nodes in a specific wire
@@ -205,7 +205,7 @@ impl World {
 
     /// Calculates the default node count for a wire based on distance and link target
     pub fn wire_optimal_length(start_x: f32, start_y: f32, end_x: f32, end_y: f32, radius: f32) -> usize {
-        Wire::optimal_length(Point { x: start_x, y: start_y }, Point { x: end_x, y: end_y }, radius)
+        WasmWire::optimal_length(WasmPoint { x: start_x, y: start_y }, WasmPoint { x: end_x, y: end_y }, radius)
     }
 
     /// Returns the pointer to the wire data buffer
@@ -262,7 +262,7 @@ impl World {
     }
 
     /// Gets the acceleration vector
-    pub fn get_acceleration(&self) -> Point {
+    pub fn get_acceleration(&self) -> WasmPoint {
         self.acceleration
     }
 
@@ -278,11 +278,11 @@ impl World {
 
     /// Sets the acceleration vector
     pub fn set_acceleration(&mut self, x: f32, y: f32) {
-        self.acceleration = Point { x, y };
+        self.acceleration = WasmPoint { x, y };
     }
 
     /// Converts wire nodes to simple line segments (performance optimized)
-    fn nodes_to_segments(wire: &Wire) -> Vec<Point> {
+    fn nodes_to_segments(wire: &WasmWire) -> Vec<WasmPoint> {
         let nodes = wire.get_nodes();
         if nodes.is_empty() {
             return Vec::new();
@@ -293,7 +293,7 @@ impl World {
     }
 
     /// Calculates Bezier points from wire nodes using Catmull-Rom to Bezier conversion
-    fn catmull_to_bezier_points(wire: &Wire) -> Vec<Point> {
+    fn catmull_to_bezier_points(wire: &WasmWire) -> Vec<WasmPoint> {
         let nodes = wire.get_nodes();
         if nodes.len() < 3 {
             return Vec::new();
@@ -308,11 +308,11 @@ impl World {
         result.push(p0);
 
         for i in 0..nodes.len() - 1 {
-            let bp1 = Point { 
+            let bp1 = WasmPoint { 
                 x: ((-p0.x + 6.0 * p1.x + p2.x) / 6.0), 
                 y: ((-p0.y + 6.0 * p1.y + p2.y) / 6.0) 
             };
-            let bp2 = Point { 
+            let bp2 = WasmPoint { 
                 x: ((p1.x + 6.0 * p2.x - p3.x) / 6.0), 
                 y: ((p1.y + 6.0 * p2.y - p3.y) / 6.0) 
             };

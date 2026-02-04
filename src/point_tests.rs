@@ -1,4 +1,4 @@
-use crate::world::point::Point;
+use crate::world::point::WasmPoint as Point;
 
 #[test]
 fn test_point_new() {
