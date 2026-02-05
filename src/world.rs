@@ -32,7 +32,7 @@ impl WasmWorld {
             // Default configuration values
             mouse_radius: 40.0,
             pointer_radius: 20.0,
-            response_coef: 0.75,
+            response_coef: 0.0,
             friction: 0.95,
             acceleration: WasmPoint { x: 0.0, y: 10.0 },
         }
