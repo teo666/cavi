@@ -215,6 +215,14 @@ impl WasmWire {
         }
     }
 
+    /// Sets the position of a specific node
+    pub fn set_node_position(&mut self, node_idx: usize, x: f32, y: f32) {
+        if let Some(node) = self.nodes.get_mut(node_idx) {
+            node.set_position(x, y);
+            self.invalidate();
+        }
+    }
+
     /// Returns the length of the wire (sum of all segment distances)
     pub fn length(&self) -> f32 {
         let mut total = 0.0;

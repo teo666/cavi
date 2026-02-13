@@ -203,6 +203,13 @@ impl WasmWorld {
         }
     }
 
+    /// Sets the position of a specific node in a wire
+    pub fn set_wire_node_position(&mut self, wire_idx: usize, node_idx: usize, x: f32, y: f32) {
+        if let Some(wire) = self.wires.get_mut(wire_idx) {
+            wire.set_node_position(node_idx, x, y);
+        }
+    }
+
     /// Calculates the default node count for a wire based on distance and link target
     pub fn wire_optimal_length(start_x: f32, start_y: f32, end_x: f32, end_y: f32, radius: f32) -> usize {
         WasmWire::optimal_length(WasmPoint { x: start_x, y: start_y }, WasmPoint { x: end_x, y: end_y }, radius)
