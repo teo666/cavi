@@ -1,6 +1,6 @@
 [package]
 name = "cavi"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Teo Basili <teo.basili@gmail.com>"]
 edition = "2018"
 
