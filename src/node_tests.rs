@@ -1,6 +1,6 @@
-use crate::world::node::Node;
-use crate::world::point::Point;
-use crate::world::position::Position;
+use crate::world::node::WasmNode as Node;
+use crate::world::point::WasmPoint as Point;
+use crate::world::position::WasmPosition as Position;
 
 #[test]
 fn test_node_new() {

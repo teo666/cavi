@@ -4,16 +4,16 @@ use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 #[derive(Debug, Copy, Clone)]
-pub struct Point {
+pub struct WasmPoint {
     pub x: f32,
     pub y: f32,
 }
 
 #[wasm_bindgen] 
-impl Point {
+impl WasmPoint {
     #[wasm_bindgen(constructor)]
-    pub fn new(x: f32, y: f32) -> Point {
-        Point {
+    pub fn new(x: f32, y: f32) -> WasmPoint {
+        WasmPoint {
             x: x,
             y: y,
         }
@@ -30,15 +30,15 @@ impl Point {
     }
 
     /// Returns a normalized version of this point (unit vector)
-    pub fn normalized(&self) -> Point {
+    pub fn normalized(&self) -> WasmPoint {
         let len = self.length();
         if len > 0.0 {
-            Point {
+            WasmPoint {
                 x: self.x / len,
                 y: self.y / len,
             }
         } else {
-            Point { x: 0.0, y: 0.0 }
+            WasmPoint { x: 0.0, y: 0.0 }
         }
     }
 
@@ -52,26 +52,26 @@ impl Point {
     }
 
     /// Returns the distance to another point
-    pub fn distance_to(&self, other: &Point) -> f32 {
+    pub fn distance_to(&self, other: &WasmPoint) -> f32 {
         let dx = self.x - other.x;
         let dy = self.y - other.y;
         (dx * dx + dy * dy).sqrt()
     }
 
     /// Returns the squared distance to another point (avoids sqrt)
-    pub fn distance_squared_to(&self, other: &Point) -> f32 {
+    pub fn distance_squared_to(&self, other: &WasmPoint) -> f32 {
         let dx = self.x - other.x;
         let dy = self.y - other.y;
         dx * dx + dy * dy
     }
 
     /// Returns the dot product with another point
-    pub fn dot(&self, other: &Point) -> f32 {
+    pub fn dot(&self, other: &WasmPoint) -> f32 {
         self.x * other.x + self.y * other.y
     }
 
     /// Returns the cross product (z component) with another point
-    pub fn cross(&self, other: &Point) -> f32 {
+    pub fn cross(&self, other: &WasmPoint) -> f32 {
         self.x * other.y - self.y * other.x
     }
 
@@ -81,17 +81,17 @@ impl Point {
     }
 
     /// Returns the angle to another point in radians
-    pub fn angle_to(&self, other: &Point) -> f32 {
+    pub fn angle_to(&self, other: &WasmPoint) -> f32 {
         let dot = self.dot(other);
         let det = self.cross(other);
         det.atan2(dot)
     }
 
     /// Returns a point rotated by the given angle (in radians)
-    pub fn rotated(&self, angle: f32) -> Point {
+    pub fn rotated(&self, angle: f32) -> WasmPoint {
         let cos = angle.cos();
         let sin = angle.sin();
-        Point {
+        WasmPoint {
             x: self.x * cos - self.y * sin,
             y: self.x * sin + self.y * cos,
         }
@@ -108,36 +108,36 @@ impl Point {
     }
 
     /// Linear interpolation between this point and another
-    pub fn lerp(&self, other: &Point, t: f32) -> Point {
-        Point {
+    pub fn lerp(&self, other: &WasmPoint, t: f32) -> WasmPoint {
+        WasmPoint {
             x: self.x + (other.x - self.x) * t,
             y: self.y + (other.y - self.y) * t,
         }
     }
 
     /// Returns a perpendicular vector (rotated 90 degrees CCW)
-    pub fn perpendicular(&self) -> Point {
-        Point {
+    pub fn perpendicular(&self) -> WasmPoint {
+        WasmPoint {
             x: -self.y,
             y: self.x,
         }
     }
 
     /// Reflects this vector across a normal vector
-    pub fn reflect(&self, normal: &Point) -> Point {
+    pub fn reflect(&self, normal: &WasmPoint) -> WasmPoint {
         let dot = self.dot(normal);
-        Point {
+        WasmPoint {
             x: self.x - 2.0 * dot * normal.x,
             y: self.y - 2.0 * dot * normal.y,
         }
     }
 
     /// Clamps the length of the vector to a maximum value
-    pub fn clamped(&self, max_length: f32) -> Point {
+    pub fn clamped(&self, max_length: f32) -> WasmPoint {
         let len_sq = self.length_squared();
         if len_sq > max_length * max_length {
             let len = len_sq.sqrt();
-            Point {
+            WasmPoint {
                 x: self.x * max_length / len,
                 y: self.y * max_length / len,
             }
@@ -147,81 +147,81 @@ impl Point {
     }
 
     /// Returns true if this point is approximately equal to another
-    pub fn approx_equal(&self, other: &Point, epsilon: f32) -> bool {
+    pub fn approx_equal(&self, other: &WasmPoint, epsilon: f32) -> bool {
         (self.x - other.x).abs() < epsilon && (self.y - other.y).abs() < epsilon
     }
 
     /// Returns a zero point (0, 0)
-    pub fn zero() -> Point {
-        Point { x: 0.0, y: 0.0 }
+    pub fn zero() -> WasmPoint {
+        WasmPoint { x: 0.0, y: 0.0 }
     }
 
     /// Returns a point with both components set to 1
-    pub fn one() -> Point {
-        Point { x: 1.0, y: 1.0 }
+    pub fn one() -> WasmPoint {
+        WasmPoint { x: 1.0, y: 1.0 }
     }
 
     /// Returns a unit point in the X direction (1, 0)
-    pub fn unit_x() -> Point {
-        Point { x: 1.0, y: 0.0 }
+    pub fn unit_x() -> WasmPoint {
+        WasmPoint { x: 1.0, y: 0.0 }
     }
 
     /// Returns a unit point in the Y direction (0, 1)
-    pub fn unit_y() -> Point {
-        Point { x: 0.0, y: 1.0 }
+    pub fn unit_y() -> WasmPoint {
+        WasmPoint { x: 0.0, y: 1.0 }
     }
 }
 
-impl Add for Point {
-    type Output = Point;
+impl Add for WasmPoint {
+    type Output = WasmPoint;
 
-    fn add(self, other: Point) -> Point {
-        Point {
+    fn add(self, other: WasmPoint) -> WasmPoint {
+        WasmPoint {
             x: self.x + other.x,
             y: self.y + other.y,
         }
     }
 }
 
-impl AddAssign for Point {
+impl AddAssign for WasmPoint {
     fn add_assign(&mut self, rhs: Self) {
         self.x += rhs.x;
         self.y += rhs.y;
     }
 }
 
-impl SubAssign for Point {
+impl SubAssign for WasmPoint {
     fn sub_assign(&mut self, rhs: Self) {
         self.x -= rhs.x;
         self.y -= rhs.y;
     }
 }
 
-impl Sub for Point {
-    type Output = Point;
+impl Sub for WasmPoint {
+    type Output = WasmPoint;
 
-    fn sub(self, other: Point) -> Point {
-        Point {
+    fn sub(self, other: WasmPoint) -> WasmPoint {
+        WasmPoint {
             x: self.x - other.x,
             y: self.y - other.y,
         }
     }
 }
 
-impl Mul<f32> for Point {
-    type Output = Point;
-    fn mul(self, scalar: f32) -> Point {
-        Point {
+impl Mul<f32> for WasmPoint {
+    type Output = WasmPoint;
+    fn mul(self, scalar: f32) -> WasmPoint {
+        WasmPoint {
             x: self.x * scalar,
             y: self.y * scalar,
         }
     }
 }
 
-impl Div<f32> for Point {
-    type Output = Point;
-    fn div(self, scalar: f32) -> Point {
-        Point {
+impl Div<f32> for WasmPoint {
+    type Output = WasmPoint;
+    fn div(self, scalar: f32) -> WasmPoint {
+        WasmPoint {
             x: self.x / scalar,
             y: self.y / scalar,
         }
@@ -230,7 +230,7 @@ impl Div<f32> for Point {
 
 
 
-impl fmt::Display for Point {
+impl fmt::Display for WasmPoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "x: {} y: {}", self.x, self.y)?;
         Ok(())

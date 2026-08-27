@@ -1,21 +1,21 @@
 use std::fmt;
 use wasm_bindgen::prelude::*;
-use crate::world::point::Point as Point;
-use crate::world::position::Position as Position;
+use crate::world::point::WasmPoint as WasmPoint;
+use crate::world::position::WasmPosition as WasmPosition;
 
 #[wasm_bindgen]
 #[derive(Clone, Copy, Debug)]
-pub struct Node {
-    pub position: Position,
-    pub velocity: Point,
+pub struct WasmNode {
+    pub position: WasmPosition,
+    pub velocity: WasmPoint,
     pub fixed: bool,
 }
 
 #[wasm_bindgen]
-impl Node {
+impl WasmNode {
     #[wasm_bindgen(constructor)]
-    pub fn new(pos: Position, vel: Point, fix: bool) -> Node {
-        Node {
+    pub fn new(pos: WasmPosition, vel: WasmPoint, fix: bool) -> WasmNode {
+        WasmNode {
             position: pos,
             velocity: vel,
             fixed: fix,
@@ -23,28 +23,28 @@ impl Node {
     }
 
     /// Creates a Node with no initial velocity
-    pub fn new_no_vel(x: f32, y: f32, fix: bool) -> Node {
-        Node {
-            position: Position::new(x, y),
-            velocity: Point::zero(),
+    pub fn new_no_vel(x: f32, y: f32, fix: bool) -> WasmNode {
+        WasmNode {
+            position: WasmPosition::new(x, y),
+            velocity: WasmPoint::zero(),
             fixed: fix,
         }
     }
 
     /// Creates a Node at origin with no velocity
-    pub fn zero() -> Node {
-        Node {
-            position: Position::new(0.0, 0.0),
-            velocity: Point::zero(),
+    pub fn zero() -> WasmNode {
+        WasmNode {
+            position: WasmPosition::new(0.0, 0.0),
+            velocity: WasmPoint::zero(),
             fixed: false,
         }
     }
 
     /// Creates a fixed Node at the given position
-    pub fn new_fixed(x: f32, y: f32) -> Node {
-        Node {
-            position: Position::new(x, y),
-            velocity: Point::zero(),
+    pub fn new_fixed(x: f32, y: f32) -> WasmNode {
+        WasmNode {
+            position: WasmPosition::new(x, y),
+            velocity: WasmPoint::zero(),
             fixed: true,
         }
     }
@@ -111,12 +111,12 @@ impl Node {
     }
 
     /// Returns the current position as a Point
-    pub fn get_position(&self) -> Point {
+    pub fn get_position(&self) -> WasmPoint {
         self.position.get_curr()
     }
 
     /// Returns the velocity as a Point
-    pub fn get_velocity(&self) -> Point {
+    pub fn get_velocity(&self) -> WasmPoint {
         self.velocity
     }
 
@@ -134,14 +134,14 @@ impl Node {
     }
 
     /// Applies a force from a Point
-    pub fn apply_force_point(&mut self, force: Point) {
+    pub fn apply_force_point(&mut self, force: WasmPoint) {
         if !self.fixed {
             self.velocity += force;
         }
     }
 
     /// Updates the position based on velocity and acceleration
-    pub fn update_position(&mut self, dt: f32, friction: f32, acceleration: Point) {
+    pub fn update_position(&mut self, dt: f32, friction: f32, acceleration: WasmPoint) {
         if !self.fixed {
             let v = (self.position.curr - self.position.old) * friction;
 
@@ -151,7 +151,7 @@ impl Node {
     }
 
     /// Updates position with custom acceleration
-    pub fn update_with_acceleration(&mut self, acceleration: Point, dt: f32, friction: f32) {
+    pub fn update_with_acceleration(&mut self, acceleration: WasmPoint, dt: f32, friction: f32) {
         if !self.fixed {
             self.position.integrate(acceleration, dt, friction);
         }
@@ -166,16 +166,16 @@ impl Node {
     /// Resets the velocity to zero
     pub fn reset_velocity(&mut self) {
         self.position.reset_velocity();
-        self.velocity = Point::zero();
+        self.velocity = WasmPoint::zero();
     }
 
     /// Returns the distance to another node
-    pub fn distance_to(&self, other: &Node) -> f32 {
+    pub fn distance_to(&self, other: &WasmNode) -> f32 {
         self.position.curr.distance_to(&other.position.curr)
     }
 
     /// Returns the squared distance to another node (faster)
-    pub fn distance_squared_to(&self, other: &Node) -> f32 {
+    pub fn distance_squared_to(&self, other: &WasmNode) -> f32 {
         self.position.curr.distance_squared_to(&other.position.curr)
     }
 
@@ -185,7 +185,7 @@ impl Node {
     }
 }
 
-impl fmt::Display for Node {
+impl fmt::Display for WasmNode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "position: {}, velocity: {}, fixed: {}", self.position, self.velocity, self.fixed)?;
 
