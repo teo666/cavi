@@ -251,7 +251,7 @@ fn test_a_held_wire_is_not_pushed_by_the_mouse_on_its_own_end() {
 
 #[test]
 fn test_while_holding_other_wires_are_pushed_within_pointer_radius() {
-    /// How far the other wire's middle node ends up from a mouse right above it.
+    // How far the other wire's middle node ends up from a mouse right above it.
     let pushed = |hold: bool, pointer_radius: f32| {
         let mut world = World::new();
         world.set_acceleration(0.0, 0.0);
