@@ -382,3 +382,15 @@ fn test_a_sleeping_wire_is_still_drawn() {
     world.build_render_data(0.5);
     assert_eq!(drawn_points(&world).len(), 5);
 }
+
+#[test]
+fn test_the_render_type_of_a_wire_can_be_changed() {
+    let mut world = world_with_wire(); // segments
+    world.update();
+    assert_eq!(world.get_wire_render_type(0), 0);
+    let segments = buffer(&world)[3];
+    world.set_wire_render_type(0, 1);
+    world.build_render_data(1.0);
+    assert_eq!(world.get_wire_render_type(0), 1);
+    assert!(buffer(&world)[3] > segments); // bezier: 3 points per segment
+}

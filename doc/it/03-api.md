@@ -33,6 +33,7 @@ Il contenitore principale della simulazione. Costruito con `new WasmWorld()`.
 | `set_wire_start(wire_idx, x, y)` / `set_wire_end(wire_idx, x, y)` | Sposta gli estremi fissi |
 | `get_wire_radius(wire_idx) -> f32` / `set_wire_radius(wire_idx, radius)` | Spessore del cavo (non cambia la distanza tra i nodi) |
 | `get_wire_link_distance(wire_idx) -> f32` / `set_wire_link_distance(wire_idx, distance)` | Distanza a riposo tra nodi vicini |
+| `get_wire_render_type(wire_idx) -> u8` / `set_wire_render_type(wire_idx, render_type)` | Tipo di rendering di un cavo (`0` = segmenti, `1` = bezier), usato dal prossimo `build_render_data` |
 | `is_wire_sleeping(wire_idx) -> bool` | Se un cavo dorme (vedi [Sospensione](#sospensione)) |
 
 **Simulazione**

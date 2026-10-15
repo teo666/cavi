@@ -232,6 +232,19 @@ impl WasmWorld {
         }
     }
 
+    /// Render type of a wire: 0 = segments, 1 = bezier (1 if out of range)
+    pub fn get_wire_render_type(&self, wire_idx: usize) -> u8 {
+        self.wires.get(wire_idx).map(|wire| wire.get_render_type()).unwrap_or(1)
+    }
+
+    /// Sets the render type of a wire (0 = segments, 1 = bezier), used by
+    /// the next build_render_data
+    pub fn set_wire_render_type(&mut self, wire_idx: usize, render_type: u8) {
+        if let Some(wire) = self.wires.get_mut(wire_idx) {
+            wire.set_render_type(render_type);
+        }
+    }
+
     /// Rest distance between neighbouring nodes of a wire (0 if out of range)
     pub fn get_wire_link_distance(&self, wire_idx: usize) -> f32 {
         self.wires.get(wire_idx).map(|wire| wire.get_link_distance()).unwrap_or(0.0)

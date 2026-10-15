@@ -33,6 +33,7 @@ The main simulation container. Constructed with `new WasmWorld()`.
 | `set_wire_start(wire_idx, x, y)` / `set_wire_end(wire_idx, x, y)` | Move the fixed endpoints |
 | `get_wire_radius(wire_idx) -> f32` / `set_wire_radius(wire_idx, radius)` | Wire thickness (does not change the distance between nodes) |
 | `get_wire_link_distance(wire_idx) -> f32` / `set_wire_link_distance(wire_idx, distance)` | Rest distance between neighbouring nodes |
+| `get_wire_render_type(wire_idx) -> u8` / `set_wire_render_type(wire_idx, render_type)` | Render type of a wire (`0` = segments, `1` = bezier), used by the next `build_render_data` |
 | `is_wire_sleeping(wire_idx) -> bool` | Whether a wire is asleep (see [Sleeping](#sleeping)) |
 
 **Simulation**
