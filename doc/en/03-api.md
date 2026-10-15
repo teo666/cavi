@@ -21,6 +21,8 @@ The main simulation container. Constructed with `new WasmWorld()`.
 |---|---|
 | `get_wire_node(wire_idx, node_idx) -> Option<WasmNode>` | Copy of a node |
 | `get_wire_node_x/y(wire_idx, node_idx) -> f32` | Node coordinates |
+| `get_wire_node_render_x/y(wire_idx, node_idx) -> f32` | Where the node is drawn by the last `build_render_data` (interpolated) |
+| `get_wire_node_fixed(wire_idx, node_idx) -> bool` | Whether a node is fixed, without copying it out |
 | `get_wire_node_count(wire_idx) -> usize` | Node count for a wire |
 | `add_wire_node(wire_idx, x, y, fixed)` | Append a node |
 | `add_wire_node_at(wire_idx, node_idx, x, y, fixed)` | Insert a node at index |
@@ -34,7 +36,9 @@ The main simulation container. Constructed with `new WasmWorld()`.
 **Simulation**
 | Method | Description |
 |---|---|
-| `update()` | Advances physics for all wires and rebuilds the render buffer |
+| `update()` | `step()` followed by `build_render_data(1.0)` |
+| `step()` | Advances physics for all wires by one step (`substeps` × `time_step`); does not touch the render buffer |
+| `build_render_data(alpha)` | Rebuilds the render buffer, drawing each movable node `alpha` (0..1) of the way from its position before the last step to its current one; fixed nodes are drawn where they are. Call it on every frame, even when no step ran |
 | `set_mouse(x, y)` | Sets pointer position for collision |
 | `wire_optimal_length(start_x, start_y, end_x, end_y, radius) -> usize` (static) | Suggests a node count for a wire given endpoints and radius |
 
@@ -54,10 +58,16 @@ See [Architecture → Wire data buffer format](./02-architecture.md#wire-data-bu
 | `response_coef` | `0.0` | Strength of wire self-collision response |
 | `friction` | `0.95` | Verlet damping factor |
 | `acceleration` | `(0.0, 10.0)` | Global acceleration (gravity), `get_acceleration_x/y()` also available |
+| `time_step` | `0.3` | Simulated time per sub-step. Larger is faster but less stable |
+| `substeps` | `2` | Sub-steps per `step()` (at least 1). Each advances time by `time_step`, so this changes speed as well as accuracy |
+| `constraint_iterations` | `1` | Link relaxation passes per sub-step (at least 1): more make cables stiffer, without changing speed |
+| `render_alpha` | `1.0` | Read-only: the `alpha` of the last `build_render_data` |
+
+**Frame-rate independent stepping.** The step has a fixed time delta, so call `step()` at a fixed rate (e.g. 60 per second, with an accumulator) and `build_render_data(accumulator / step_duration)` on every frame: physics behaves the same on every display, and a display faster than the step rate still draws a new position on every frame.
 
 ## `WasmWire`
 
-Constructed via `WasmWire::new()` (30-node default wire) or the static factories `new_wire(...)` / `new_with_count(...)` (mirrors `WasmWorld::add_wire[_with_count]`).
+Constructed via `WasmWire::new()` (30-node default wire) or the static factories `new_wire(...)` / `new_with_count(...)` (mirrors `WasmWorld::add_wire[_with_count]`). The factories place the nodes evenly on the straight line between the two ends (fixed), so a new wire starts where it is drawn instead of flying in from a fixed point.
 
 | Method | Description |
 |---|---|
@@ -73,7 +83,9 @@ Constructed via `WasmWire::new()` (30-node default wire) or the static factories
 | `set_node_fixed(node_idx, fixed)` / `set_node_position(node_idx, x, y)` | Per-node edits |
 | `length() -> f32` | Sum of segment distances (polyline length) |
 | `check_collision(point, pointer_radius)` | Pushes movable nodes outside `radius + pointer_radius` of `point` |
-| `update(dt, friction, acceleration)` | Integrates nodes, then relaxes neighbor distance constraint |
+| `update(dt, friction, acceleration)` | Integrates nodes, then relaxes neighbor distance constraint once |
+| `update_with_iterations(dt, friction, acceleration, iterations)` | Same, relaxing the constraint `iterations` times |
+| `is_node_fixed(index) -> bool` | Whether a node is fixed |
 | `check_wire_elements_collisions(response_coef)` | Self-collision |
 | `check_mouse_collision(mouse, mouse_radius)` | Pointer repulsion |
 | `invalidate()` | Resets the internal iteration counter |

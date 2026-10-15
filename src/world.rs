@@ -19,6 +19,14 @@ pub struct WasmWorld {
     response_coef: f32,
     friction: f32,
     acceleration: WasmPoint,
+    /// Simulated time covered by one sub-step.
+    time_step: f32,
+    /// Sub-steps (integration + link relaxation) per step().
+    substeps: u32,
+    /// Link relaxation passes per sub-step.
+    constraint_iterations: u32,
+    /// Interpolation factor of the last build_render_data.
+    render_alpha: f32,
 }
 
 #[wasm_bindgen]
@@ -35,27 +43,58 @@ impl WasmWorld {
             response_coef: 0.0,
             friction: 0.95,
             acceleration: WasmPoint { x: 0.0, y: 10.0 },
+            time_step: 0.3,
+            substeps: 2,
+            constraint_iterations: 1,
+            render_alpha: 1.0,
         }
     }
 
-    /// Updates all wires in the world
+    /// One physics step, then the render buffer rebuilt for the new state —
+    /// step() followed by build_render_data(1.0).
     pub fn update(&mut self) {
-        for _i in 1..3 {
+        self.step();
+        self.build_render_data(1.0);
+    }
+
+    /// Advances the simulation by one step: `substeps` sub-steps of
+    /// `time_step` each (mouse collision, link collisions, integration and
+    /// `constraint_iterations` link relaxations). Does not touch the render
+    /// buffer — see build_render_data. Node positions before the step are
+    /// kept, so frames drawn between two steps can be interpolated.
+    pub fn step(&mut self) {
+        for w in self.wires.iter_mut() {
+            w.snapshot_positions();
+        }
+        for _ in 0..self.substeps {
             for w in self.wires.iter_mut() {
                 w.check_mouse_collision(self.mouse, self.mouse_radius);
                 w.check_wire_elements_collisions(self.response_coef);
-                w.update(0.3, self.friction, self.acceleration);
+                w.update_with_iterations(self.time_step, self.friction, self.acceleration, self.constraint_iterations);
             }
         }
-        
+    }
+
+    /// Rebuilds the render buffer (wire_data_ptr) from the current wires,
+    /// with every movable node drawn `alpha` (0..1) of the way from where it
+    /// was before the last step to where it is now: 1 draws the current
+    /// state, lower values draw a state between the last two steps. Lets a
+    /// display faster than the physics rate draw a new position on every
+    /// frame instead of repeating the last one. Fixed nodes are always drawn
+    /// where they are. Can be called any number of times between steps
+    /// (e.g. after adding or deleting a wire).
+    pub fn build_render_data(&mut self, alpha: f32) {
+        let alpha = if alpha.is_finite() { alpha.clamp(0.0, 1.0) } else { 1.0 };
+        self.render_alpha = alpha;
+
         // Calculate Bezier points for all wires and populate buffer directly
         self.wire_data_buffer.clear();
-        
+
         for wire in &self.wires {
+            let positions = wire.render_positions(alpha);
             let points = match wire.render_type {
-                0 => Self::nodes_to_segments(wire),
-                1 => Self::catmull_to_bezier_points(wire),
-                _ => Self::catmull_to_bezier_points(wire), // Default to bezier
+                0 => positions,
+                _ => Self::catmull_to_bezier_points(&positions), // 1 and default: bezier
             };
             
             // Store wire metadata
@@ -288,29 +327,83 @@ impl WasmWorld {
         self.acceleration = WasmPoint { x, y };
     }
 
-    /// Converts wire nodes to simple line segments (performance optimized)
-    fn nodes_to_segments(wire: &WasmWire) -> Vec<WasmPoint> {
-        let nodes = wire.get_nodes();
-        if nodes.is_empty() {
-            return Vec::new();
-        }
-        
-        // Simply return node positions as points
-        nodes.iter().map(|node| node.get_position()).collect()
+    /// Gets the simulated time covered by one sub-step (default 0.3)
+    pub fn get_time_step(&self) -> f32 {
+        self.time_step
     }
 
-    /// Calculates Bezier points from wire nodes using Catmull-Rom to Bezier conversion
-    fn catmull_to_bezier_points(wire: &WasmWire) -> Vec<WasmPoint> {
-        let nodes = wire.get_nodes();
+    /// Sets the simulated time covered by one sub-step. Larger is faster
+    /// but less stable. Ignored unless finite and positive.
+    pub fn set_time_step(&mut self, time_step: f32) {
+        if time_step.is_finite() && time_step > 0.0 {
+            self.time_step = time_step;
+        }
+    }
+
+    /// Gets the number of sub-steps per step (default 2)
+    pub fn get_substeps(&self) -> u32 {
+        self.substeps
+    }
+
+    /// Sets the number of sub-steps per step (at least 1). Each sub-step
+    /// advances time by `time_step`, so this changes speed as well as
+    /// accuracy: for a stiffer cable at the same speed, raise
+    /// `constraint_iterations` instead.
+    pub fn set_substeps(&mut self, substeps: u32) {
+        self.substeps = substeps.max(1);
+    }
+
+    /// Gets the link relaxation passes per sub-step (default 1)
+    pub fn get_constraint_iterations(&self) -> u32 {
+        self.constraint_iterations
+    }
+
+    /// Sets the link relaxation passes per sub-step (at least 1): more
+    /// passes make cables stiffer (less stretch) without changing speed.
+    pub fn set_constraint_iterations(&mut self, iterations: u32) {
+        self.constraint_iterations = iterations.max(1);
+    }
+
+    /// Gets the interpolation factor used by the last build_render_data
+    pub fn get_render_alpha(&self) -> f32 {
+        self.render_alpha
+    }
+
+    /// x of a node as drawn by the last build_render_data (interpolated
+    /// like the render buffer) — for DOM elements that must stay on the
+    /// drawn cable, e.g. plugs.
+    pub fn get_wire_node_render_x(&self, wire_idx: usize, node_idx: usize) -> f32 {
+        self.wires.get(wire_idx)
+            .map(|wire| wire.render_position(node_idx, self.render_alpha).x)
+            .unwrap_or(0.0)
+    }
+
+    /// y of a node as drawn by the last build_render_data — see get_wire_node_render_x
+    pub fn get_wire_node_render_y(&self, wire_idx: usize, node_idx: usize) -> f32 {
+        self.wires.get(wire_idx)
+            .map(|wire| wire.render_position(node_idx, self.render_alpha).y)
+            .unwrap_or(0.0)
+    }
+
+    /// Whether a node of a wire is fixed (false if out of range) — without
+    /// copying the node out like get_wire_node does.
+    pub fn get_wire_node_fixed(&self, wire_idx: usize, node_idx: usize) -> bool {
+        self.wires.get(wire_idx)
+            .map(|wire| wire.is_node_fixed(node_idx))
+            .unwrap_or(false)
+    }
+
+    /// Calculates Bezier points from node positions using Catmull-Rom to Bezier conversion
+    fn catmull_to_bezier_points(nodes: &[WasmPoint]) -> Vec<WasmPoint> {
         if nodes.len() < 3 {
             return Vec::new();
         }
 
         let mut result = Vec::new();
-        let mut p0 = nodes[0].get_position();
-        let mut p1 = nodes[0].get_position();
-        let mut p2 = nodes[1].get_position();
-        let mut p3 = nodes[2].get_position();
+        let mut p0 = nodes[0];
+        let mut p1 = nodes[0];
+        let mut p2 = nodes[1];
+        let mut p3 = nodes[2];
         
         result.push(p0);
 
@@ -329,11 +422,11 @@ impl WasmWorld {
             p2 = p3;
             
             if i + 3 == nodes.len() {
-                p3 = nodes[i + 2].get_position();
+                p3 = nodes[i + 2];
             } else if i + 3 > nodes.len() {
-                p3 = nodes[i + 1].get_position();
+                p3 = nodes[i + 1];
             } else {
-                p3 = nodes[i + 3].get_position();
+                p3 = nodes[i + 3];
             }
             
             result.push(bp1);

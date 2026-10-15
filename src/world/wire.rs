@@ -6,6 +6,10 @@ use crate::world::node::WasmNode as WasmNode;
 #[derive(Clone)]
 pub struct WasmWire {
     nodes: Vec<WasmNode>,
+    /// Node positions at the start of the last world step, for render
+    /// interpolation (see WasmWorld::build_render_data). Empty until the
+    /// first step.
+    prev_positions: Vec<WasmPoint>,
     pub iterations: u32,
     pub radius: f32,
     pub link_target_distance: f32,
@@ -24,6 +28,7 @@ impl WasmWire {
         let mut w = WasmWire {
             iterations: 10,
             nodes,
+            prev_positions: Vec::new(),
             link_target_distance: 7.0,
             radius: 5.0,
             render_type: 1, // Default to bezier
@@ -34,14 +39,12 @@ impl WasmWire {
 
     /// Creates a wire between two points with specified radius
     pub fn new_wire(xs: f32, ys: f32, xe: f32, ye: f32, radius: f32) -> WasmWire {
-        let mut nodes = vec![WasmNode::new_no_vel(xs, ys, true), WasmNode::new_no_vel(xe, ye, true)];
-        let optimal_len = WasmWire::optimal_length(nodes[0].get_position(), nodes[nodes.len() - 1].get_position(), radius);
-        for _i in 1..optimal_len {
-            nodes.insert(1, WasmNode::new_no_vel(100.0, 110.0, false))
-        }
+        let optimal_len = WasmWire::optimal_length(WasmPoint { x: xs, y: ys }, WasmPoint { x: xe, y: ye }, radius);
+        let nodes = WasmWire::straight_nodes(xs, ys, xe, ye, optimal_len + 1);
         let mut w = WasmWire {
             iterations: 10,
             nodes,
+            prev_positions: Vec::new(),
             link_target_distance: radius * 3.0,
             radius,
             render_type: 1, // Default to bezier
@@ -56,17 +59,13 @@ impl WasmWire {
             panic!("Wire must have at least 2 nodes");
         }
         
-        // Create start and end nodes as fixed points
-        let mut nodes = vec![WasmNode::new_no_vel(xs, ys, true), WasmNode::new_no_vel(xe, ye, true)];
-        
-        // Insert movable nodes in between
-        for _i in 1..node_count - 1 {
-            nodes.insert(1, WasmNode::new_no_vel(100.0, 110.0, false))
-        }
-        
+        // Fixed start and end, movable nodes evenly spaced in between.
+        let nodes = WasmWire::straight_nodes(xs, ys, xe, ye, node_count);
+
         let mut w = WasmWire {
             iterations: 10,
             nodes,
+            prev_positions: Vec::new(),
             link_target_distance: link_target,
             radius,
             render_type,
@@ -257,10 +256,30 @@ impl WasmWire {
 
     /// Updates the wire physics simulation
     pub fn update(&mut self, dt: f32, friction: f32, acceleration: WasmPoint) {
+        self.update_with_iterations(dt, friction, acceleration, 1);
+    }
+
+    /// Integrates every node by `dt`, then relaxes the distance between
+    /// neighbouring nodes `iterations` times. More iterations make the
+    /// cable stiffer (less stretch) without making the simulation faster.
+    pub fn update_with_iterations(&mut self, dt: f32, friction: f32, acceleration: WasmPoint, iterations: u32) {
         for node in self.nodes.iter_mut() {
             node.update_position(dt, friction, acceleration);
         }
 
+        for _ in 0..iterations.max(1) {
+            self.relax_links();
+        }
+    }
+
+    /// Whether the node at `index` is fixed (false if out of range).
+    pub fn is_node_fixed(&self, index: usize) -> bool {
+        self.nodes.get(index).map(|n| n.get_fixed()).unwrap_or(false)
+    }
+
+    /// One pass moving every pair of neighbouring nodes towards
+    /// `link_target_distance` from each other.
+    fn relax_links(&mut self) {
         for i in 1..self.nodes.len() {
             let (left, right) = self.nodes.split_at_mut(i);
             let o1 = &mut left[left.len() - 1];
@@ -354,9 +373,50 @@ impl WasmWire {
 
 // Non-wasm methods
 impl WasmWire {
-    /// Returns a reference to the nodes (for internal use by World)
-    pub(crate) fn get_nodes(&self) -> &Vec<WasmNode> {
-        &self.nodes
+    /// `count` nodes evenly spaced on the segment from (xs, ys) to (xe, ye):
+    /// fixed at both ends, movable in between.
+    fn straight_nodes(xs: f32, ys: f32, xe: f32, ye: f32, count: usize) -> Vec<WasmNode> {
+        let count = count.max(2);
+        (0..count)
+            .map(|i| {
+                let t = i as f32 / (count - 1) as f32;
+                let terminal = i == 0 || i == count - 1;
+                WasmNode::new_no_vel(xs + (xe - xs) * t, ys + (ye - ys) * t, terminal)
+            })
+            .collect()
+    }
+
+    /// Remembers the current node positions as the "previous" state for
+    /// render interpolation — called by the world at the start of a step.
+    pub(crate) fn snapshot_positions(&mut self) {
+        self.prev_positions.clear();
+        self.prev_positions.extend(self.nodes.iter().map(|n| n.get_position()));
+    }
+
+    /// Where node `index` should be drawn: `alpha` of the way from its
+    /// position before the last step to its current one. Fixed nodes, and
+    /// every node when the node count changed since the last step, are
+    /// drawn where they are now — a fixed node is placed by the app (a
+    /// plugged or dragged end) and must not lag behind it.
+    pub(crate) fn render_position(&self, index: usize, alpha: f32) -> WasmPoint {
+        let node = match self.nodes.get(index) {
+            Some(node) => node,
+            None => return WasmPoint::zero(),
+        };
+        let curr = node.get_position();
+        if node.get_fixed() || alpha >= 1.0 || self.prev_positions.len() != self.nodes.len() {
+            return curr;
+        }
+        let prev = self.prev_positions[index];
+        WasmPoint {
+            x: prev.x + (curr.x - prev.x) * alpha,
+            y: prev.y + (curr.y - prev.y) * alpha,
+        }
+    }
+
+    /// render_position for every node, in order.
+    pub(crate) fn render_positions(&self, alpha: f32) -> Vec<WasmPoint> {
+        (0..self.nodes.len()).map(|i| self.render_position(i, alpha)).collect()
     }
 
     fn intersect(&self, _point: &WasmPoint) -> bool {

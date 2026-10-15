@@ -7,6 +7,8 @@ mod point_tests;
 mod node_tests;
 #[cfg(test)]
 mod wire_tests;
+#[cfg(test)]
+mod world_tests;
 
 use wasm_bindgen::prelude::*;
 

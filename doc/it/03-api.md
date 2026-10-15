@@ -20,6 +20,8 @@ Il contenitore principale della simulazione. Costruito con `new WasmWorld()`.
 | Metodo | Descrizione |
 |---|---|
 | `get_wire_node(wire_idx, node_idx) -> Option<WasmNode>` | Copia di un nodo |
+| `get_wire_node_render_x/y(wire_idx, node_idx) -> f32` | Dove il nodo viene disegnato dall'ultimo `build_render_data` (interpolato) |
+| `get_wire_node_fixed(wire_idx, node_idx) -> bool` | Se un nodo è fisso, senza copiarlo |
 | `get_wire_node_x/y(wire_idx, node_idx) -> f32` | Coordinate del nodo |
 | `get_wire_node_count(wire_idx) -> usize` | Numero di nodi di un cavo |
 | `add_wire_node(wire_idx, x, y, fixed)` | Aggiunge un nodo in coda |
@@ -34,7 +36,9 @@ Il contenitore principale della simulazione. Costruito con `new WasmWorld()`.
 **Simulazione**
 | Metodo | Descrizione |
 |---|---|
-| `update()` | Avanza la fisica per tutti i cavi e ricostruisce il buffer di rendering |
+| `update()` | `step()` seguito da `build_render_data(1.0)` |
+| `step()` | Avanza la fisica di tutti i cavi di un passo (`substeps` × `time_step`); non tocca il buffer di rendering |
+| `build_render_data(alpha)` | Ricostruisce il buffer di rendering disegnando ogni nodo mobile ad `alpha` (0..1) del tragitto tra la sua posizione prima dell'ultimo passo e quella attuale; i nodi fissi sono disegnati dove sono. Va chiamato a ogni frame, anche quando non è stato eseguito nessun passo |
 | `set_mouse(x, y)` | Imposta la posizione del puntatore per le collisioni |
 | `wire_optimal_length(start_x, start_y, end_x, end_y, radius) -> usize` (statico) | Suggerisce un numero di nodi per un cavo dati gli estremi e il raggio |
 
@@ -54,10 +58,16 @@ Vedi [Architettura → Formato del buffer dati dei cavi](./02-architecture.md#fo
 | `response_coef` | `0.0` | Intensità della risposta alla self-collision |
 | `friction` | `0.95` | Fattore di smorzamento Verlet |
 | `acceleration` | `(0.0, 10.0)` | Accelerazione globale (gravità), disponibili anche `get_acceleration_x/y()` |
+| `time_step` | `0.3` | Tempo simulato per sotto-passo. Più grande è più veloce ma meno stabile |
+| `substeps` | `2` | Sotto-passi per `step()` (almeno 1). Ognuno avanza il tempo di `time_step`, quindi cambia la velocità oltre alla precisione |
+| `constraint_iterations` | `1` | Passate di rilassamento dei vincoli per sotto-passo (almeno 1): di più rendono i cavi più rigidi, senza cambiare la velocità |
+| `render_alpha` | `1.0` | Sola lettura: l'`alpha` dell'ultimo `build_render_data` |
+
+**Passi indipendenti dal frame rate.** Il passo ha un delta di tempo fisso: chiama `step()` a frequenza fissa (es. 60 al secondo, con un accumulatore) e `build_render_data(accumulatore / durata_passo)` a ogni frame. La fisica si comporta allo stesso modo su ogni schermo, e uno schermo più veloce della frequenza dei passi disegna comunque una posizione nuova a ogni frame.
 
 ## `WasmWire`
 
-Costruito tramite `WasmWire::new()` (cavo di default a 30 nodi) o le factory statiche `new_wire(...)` / `new_with_count(...)` (rispecchiano `WasmWorld::add_wire[_with_count]`).
+Costruito tramite `WasmWire::new()` (cavo di default a 30 nodi) o le factory statiche `new_wire(...)` / `new_with_count(...)` (rispecchiano `WasmWorld::add_wire[_with_count]`). Le factory dispongono i nodi in modo uniforme sulla retta tra i due estremi (fissi), così un cavo nuovo parte da dove viene disegnato invece di arrivare in volo da un punto fisso.
 
 | Metodo | Descrizione |
 |---|---|
@@ -73,7 +83,9 @@ Costruito tramite `WasmWire::new()` (cavo di default a 30 nodi) o le factory sta
 | `set_node_fixed(node_idx, fixed)` / `set_node_position(node_idx, x, y)` | Modifiche per singolo nodo |
 | `length() -> f32` | Somma delle distanze dei segmenti (lunghezza della polilinea) |
 | `check_collision(point, pointer_radius)` | Spinge i nodi mobili fuori da `radius + pointer_radius` rispetto a `point` |
-| `update(dt, friction, acceleration)` | Integra i nodi, poi rilassa il vincolo di distanza tra vicini |
+| `update(dt, friction, acceleration)` | Integra i nodi, poi rilassa una volta il vincolo di distanza tra vicini |
+| `update_with_iterations(dt, friction, acceleration, iterations)` | Come sopra, rilassando il vincolo `iterations` volte |
+| `is_node_fixed(index) -> bool` | Se un nodo è fisso |
 | `check_wire_elements_collisions(response_coef)` | Self-collision |
 | `check_mouse_collision(mouse, mouse_radius)` | Repulsione dal puntatore |
 | `invalidate()` | Azzera il contatore interno di iterazioni |
