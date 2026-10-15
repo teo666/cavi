@@ -6,7 +6,7 @@ fn test_wire_new() {
     let wire = Wire::new();
     
     assert_eq!(wire.node_count(), 30);
-    assert_eq!(wire.iterations, 0);
+    assert!(!wire.is_sleeping());
     assert_eq!(wire.radius, 5.0);
     assert_eq!(wire.link_target_distance, 7.0);
 }
@@ -91,9 +91,15 @@ fn test_wire_set_radius() {
     let mut wire = Wire::new();
     
     wire.set_radius(10.0);
-    
+
     assert_eq!(wire.radius, 10.0);
-    assert_eq!(wire.link_target_distance, 30.0); // radius * 3
+    // Thickness only: the distance between nodes is left alone.
+    assert_eq!(wire.link_target_distance, 7.0);
+
+    wire.set_link_distance(12.0);
+    assert_eq!(wire.get_link_distance(), 12.0);
+    wire.set_link_distance(0.0); // ignored
+    assert_eq!(wire.get_link_distance(), 12.0);
 }
 
 #[test]
@@ -110,11 +116,10 @@ fn test_wire_length() {
 #[test]
 fn test_wire_invalidate() {
     let mut wire = Wire::new();
-    wire.iterations = 10;
-    
+
     wire.invalidate();
-    
-    assert_eq!(wire.iterations, 0);
+
+    assert!(!wire.is_sleeping());
 }
 
 #[test]
@@ -202,16 +207,6 @@ fn test_wire_middle_nodes_are_movable() {
         let middle_node = wire.get_node(1).unwrap();
         assert!(middle_node.is_movable());
     }
-}
-
-#[test]
-fn test_wire_iterations_reset_after_invalidate() {
-    let mut wire = Wire::new();
-    wire.iterations = 100;
-    
-    wire.invalidate();
-    
-    assert_eq!(wire.iterations, 0);
 }
 
 #[test]

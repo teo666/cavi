@@ -20,7 +20,7 @@ Physics integration and collision checks run every frame and scale with the numb
 
 ## Project status
 
-This repository was bootstrapped from the [`rustwasm/wasm-pack-template`](https://github.com/rustwasm/wasm-pack-template) — the root `README.md` still contains the template's generic instructions rather than project-specific documentation; this `doc/` folder is the actual project documentation.
+This repository was bootstrapped from the [`rustwasm/wasm-pack-template`](https://github.com/rustwasm/wasm-pack-template). The root `README.md` is a short introduction; this `doc/` folder is the full project documentation.
 
 ## Relationship to `cavijs`
 

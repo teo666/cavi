@@ -9,6 +9,11 @@ pub struct WasmNode {
     pub position: WasmPosition,
     pub velocity: WasmPoint,
     pub fixed: bool,
+    /// Distance moved with move_to while fixed since the current world step
+    /// began, and during the previous step — the "hand" velocity a released
+    /// node is thrown with (see held_motion).
+    pending_motion: WasmPoint,
+    last_motion: WasmPoint,
 }
 
 #[wasm_bindgen]
@@ -19,6 +24,8 @@ impl WasmNode {
             position: pos,
             velocity: vel,
             fixed: fix,
+            pending_motion: WasmPoint::zero(),
+            last_motion: WasmPoint::zero(),
         }
     }
 
@@ -28,6 +35,8 @@ impl WasmNode {
             position: WasmPosition::new(x, y),
             velocity: WasmPoint::zero(),
             fixed: fix,
+            pending_motion: WasmPoint::zero(),
+            last_motion: WasmPoint::zero(),
         }
     }
 
@@ -37,6 +46,8 @@ impl WasmNode {
             position: WasmPosition::new(0.0, 0.0),
             velocity: WasmPoint::zero(),
             fixed: false,
+            pending_motion: WasmPoint::zero(),
+            last_motion: WasmPoint::zero(),
         }
     }
 
@@ -46,6 +57,8 @@ impl WasmNode {
             position: WasmPosition::new(x, y),
             velocity: WasmPoint::zero(),
             fixed: true,
+            pending_motion: WasmPoint::zero(),
+            last_motion: WasmPoint::zero(),
         }
     }
 
@@ -74,9 +87,28 @@ impl WasmNode {
         self.fixed
     }
 
-    /// Sets the current position
+    /// Sets the current position only — the previous one is kept, so the
+    /// move counts as velocity at the next integration (Verlet). This is
+    /// what collisions and constraints use internally; to place a node from
+    /// outside the simulation, use move_to.
     pub fn set_position(&mut self, x: f32, y: f32) {
         self.position.set_curr(x, y);
+    }
+
+    /// Places the node from outside the simulation. A movable node is
+    /// teleported, with no velocity. A fixed node (held by the app, e.g. a
+    /// dragged or plugged cable end) only has its current position set: its
+    /// previous position follows it at every integration, so it never
+    /// builds up the whole distance moved while fixed as velocity (see
+    /// WasmWorld::set_wire_node_fixed for the throw on release).
+    pub fn move_to(&mut self, x: f32, y: f32) {
+        if self.fixed {
+            self.pending_motion += WasmPoint { x, y } - self.position.curr;
+            self.position.set_curr(x, y);
+        } else {
+            self.position.set_curr(x, y);
+            self.position.set_old(x, y);
+        }
     }
 
     /// Sets the velocity
@@ -142,7 +174,10 @@ impl WasmNode {
 
     /// Updates the position based on velocity and acceleration
     pub fn update_position(&mut self, dt: f32, friction: f32, acceleration: WasmPoint) {
-        if !self.fixed {
+        if self.fixed {
+            // Track the app's moves: velocity on release = last movement only.
+            self.position.old = self.position.curr;
+        } else {
             let v = (self.position.curr - self.position.old) * friction;
 
             self.position.old = self.position.curr;
@@ -152,7 +187,9 @@ impl WasmNode {
 
     /// Updates position with custom acceleration
     pub fn update_with_acceleration(&mut self, acceleration: WasmPoint, dt: f32, friction: f32) {
-        if !self.fixed {
+        if self.fixed {
+            self.position.old = self.position.curr;
+        } else {
             self.position.integrate(acceleration, dt, friction);
         }
     }
@@ -190,5 +227,27 @@ impl fmt::Display for WasmNode {
         write!(f, "position: {}, velocity: {}, fixed: {}", self.position, self.velocity, self.fixed)?;
 
         Ok(())
+    }
+}
+
+// Non-wasm methods
+impl WasmNode {
+    /// Called by the world at the start of each step: the movement since
+    /// the previous step becomes the last step's.
+    pub(crate) fn begin_step(&mut self) {
+        self.last_motion = self.pending_motion;
+        self.pending_motion = WasmPoint::zero();
+    }
+
+    /// How far the app moved this (fixed) node over the most recent step
+    /// interval: since the current step began if it moved since, else
+    /// during the previous step. Zero once it has been held still for a
+    /// whole step.
+    pub(crate) fn held_motion(&self) -> WasmPoint {
+        if self.pending_motion.x != 0.0 || self.pending_motion.y != 0.0 {
+            self.pending_motion
+        } else {
+            self.last_motion
+        }
     }
 }

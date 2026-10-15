@@ -162,3 +162,223 @@ fn test_more_constraint_iterations_stretch_the_cable_less() {
     };
     assert!(stretch(8) < stretch(1));
 }
+
+// --- Moving nodes from outside the simulation ---
+
+/// Drags the last node of wire 0 (fixed) 15 units per step for 20 steps,
+/// holds it still for `still_steps` steps, releases it, and returns the
+/// velocity it carries (current - previous position, per sub-step).
+fn release_after_drag(still_steps: usize) -> f32 {
+    let mut world = World::new();
+    world.set_mouse(-1e6, -1e6);
+    world.set_acceleration(0.0, 0.0);
+    world.add_wire_with_count(0.0, 0.0, 100.0, 0.0, 6, 20.0, 4.0, 0);
+    world.update();
+    for i in 1..=20 {
+        world.set_wire_node_position(0, 5, 100.0 + i as f32 * 15.0, 0.0);
+        world.update();
+    }
+    for _ in 0..still_steps {
+        world.update();
+    }
+    world.set_wire_node_fixed(0, 5, false);
+    let node = world.get_wire_node(0, 5).unwrap();
+    assert!(!node.get_fixed());
+    node.position.curr.x - node.position.old.x
+}
+
+#[test]
+fn test_releasing_a_dragged_end_throws_it_with_its_last_movement_only() {
+    // Before: the whole 300-unit drag counted as velocity. Now: the last
+    // step's 15 units, over the default 2 sub-steps.
+    assert!((release_after_drag(0) - 7.5).abs() < 1e-3);
+}
+
+#[test]
+fn test_releasing_an_end_held_still_just_drops_it() {
+    assert!(release_after_drag(3).abs() < 1e-3);
+}
+
+#[test]
+fn test_moving_a_free_node_teleports_it_without_velocity() {
+    let mut world = World::new();
+    world.set_mouse(-1e6, -1e6);
+    world.set_acceleration(0.0, 0.0);
+    world.set_sleep_enabled(false);
+    world.add_wire_with_count(0.0, 0.0, 100.0, 0.0, 3, 50.0, 4.0, 0);
+    world.update();
+    world.set_wire_node_fixed(0, 2, false);
+    world.set_wire_node_fixed(0, 0, false);
+    // Move the whole (free) wire far away: no node may keep flying afterwards.
+    for i in 0..3 {
+        let x = world.get_wire_node_x(0, i);
+        world.set_wire_node_position(0, i, x + 1000.0, 500.0);
+    }
+    let before: Vec<f32> = (0..3).map(|i| world.get_wire_node_x(0, i)).collect();
+    world.update();
+    for i in 0..3 {
+        assert!((world.get_wire_node_x(0, i) - before[i]).abs() < 1.0);
+    }
+}
+
+// --- Held wire and pointer_radius ---
+
+/// Distance between the dragged end of wire 0 and its neighbour, after
+/// dragging it to (200, 150) with the mouse on it for 120 steps.
+fn drag_end_with_mouse(hold: bool) -> f32 {
+    let mut world = World::new();
+    world.add_wire_with_count(0.0, 0.0, 200.0, 0.0, 11, 20.0, 4.0, 1);
+    if hold {
+        world.set_held_wire(0);
+    }
+    for _ in 0..120 {
+        world.set_wire_node_position(0, 10, 200.0, 150.0);
+        world.set_mouse(200.0, 150.0);
+        world.update();
+    }
+    let dx = world.get_wire_node_x(0, 10) - world.get_wire_node_x(0, 9);
+    let dy = world.get_wire_node_y(0, 10) - world.get_wire_node_y(0, 9);
+    (dx * dx + dy * dy).sqrt()
+}
+
+#[test]
+fn test_a_held_wire_is_not_pushed_by_the_mouse_on_its_own_end() {
+    // Unheld, the mouse (radius 40) pushes the end's neighbour out to ~44.
+    assert!(drag_end_with_mouse(false) > 30.0);
+    // Held, the link stays near its rest length (20) plus gravity stretch.
+    assert!(drag_end_with_mouse(true) < 27.0);
+}
+
+#[test]
+fn test_while_holding_other_wires_are_pushed_within_pointer_radius() {
+    /// How far the other wire's middle node ends up from a mouse right above it.
+    let pushed = |hold: bool, pointer_radius: f32| {
+        let mut world = World::new();
+        world.set_acceleration(0.0, 0.0);
+        world.set_pointer_radius(pointer_radius);
+        world.add_wire_with_count(0.0, -300.0, 100.0, -300.0, 3, 50.0, 4.0, 0); // held
+        world.add_wire_with_count(-100.0, 0.0, 100.0, 0.0, 3, 100.0, 4.0, 0); // other
+        if hold {
+            world.set_held_wire(0);
+        }
+        world.set_mouse(0.0, -1.0);
+        world.step();
+        world.get_wire_node_y(1, 1) + 1.0
+    };
+    let by_mouse = pushed(false, 20.0); // mouse_radius 40
+    assert!(pushed(true, 20.0) > 0.0);
+    assert!(pushed(true, 20.0) < by_mouse);
+    assert!(pushed(true, 80.0) > by_mouse);
+    // Not holding: pointer_radius plays no part.
+    assert_eq!(pushed(false, 80.0), by_mouse);
+}
+
+#[test]
+fn test_the_held_wire_index_follows_deletions() {
+    let mut world = World::new();
+    for i in 0..3 {
+        world.add_wire_with_count(0.0, i as f32 * 50.0, 100.0, i as f32 * 50.0, 3, 50.0, 4.0, 0);
+    }
+    world.set_held_wire(2);
+    world.delete_wire(0);
+    assert_eq!(world.get_held_wire(), Some(1));
+    world.delete_wire(1);
+    assert_eq!(world.get_held_wire(), None);
+    world.set_held_wire(7); // out of range: ignored
+    assert_eq!(world.get_held_wire(), None);
+}
+
+// --- Sleeping ---
+
+/// A straight, gravity-free wire at rest: still from the first step.
+fn resting_world() -> World {
+    let mut world = World::new();
+    world.set_mouse(-1e6, -1e6);
+    world.set_acceleration(0.0, 0.0);
+    world.add_wire_with_count(0.0, 0.0, 100.0, 0.0, 5, 25.0, 4.0, 0);
+    world
+}
+
+#[test]
+fn test_a_still_wire_falls_asleep_after_sleep_steps() {
+    let mut world = resting_world();
+    for _ in 0..29 {
+        world.update();
+    }
+    assert!(!world.is_wire_sleeping(0));
+    world.update();
+    assert!(world.is_wire_sleeping(0));
+    assert_eq!(world.sleeping_wire_count(), 1);
+}
+
+#[test]
+fn test_a_moving_wire_stays_awake() {
+    let mut world = World::new(); // gravity on: the wire sags for a while
+    world.set_mouse(-1e6, -1e6);
+    world.add_wire_with_count(0.0, 0.0, 100.0, 0.0, 5, 30.0, 4.0, 0);
+    for _ in 0..30 {
+        world.update();
+    }
+    assert!(!world.is_wire_sleeping(0));
+}
+
+#[test]
+fn test_a_sleeping_wire_wakes_up_on_changes() {
+    let wake = |change: &dyn Fn(&mut World)| {
+        let mut world = resting_world();
+        for _ in 0..40 {
+            world.update();
+        }
+        assert!(world.is_wire_sleeping(0));
+        change(&mut world);
+        world.step();
+        !world.is_wire_sleeping(0)
+    };
+    assert!(wake(&|w| w.set_acceleration(0.0, 10.0)));
+    assert!(wake(&|w| w.set_friction(0.9)));
+    assert!(wake(&|w| w.set_wire_node_fixed(0, 4, false)));
+    assert!(wake(&|w| w.set_wire_node_position(0, 0, 0.0, 20.0)));
+    assert!(wake(&|w| w.add_wire_node_at(0, 2, 50.0, 0.0, false)));
+    assert!(wake(&|w| w.set_wire_link_distance(0, 30.0)));
+    assert!(wake(&|w| w.set_mouse(50.0, 10.0))); // within reach
+    assert!(!wake(&|w| w.set_mouse(50.0, 500.0))); // far away
+    assert!(wake(&|w| w.set_sleep_enabled(false)));
+}
+
+#[test]
+fn test_with_sleeping_off_no_wire_sleeps() {
+    let mut world = resting_world();
+    world.set_sleep_enabled(false);
+    for _ in 0..100 {
+        world.update();
+    }
+    assert!(!world.is_wire_sleeping(0));
+}
+
+#[test]
+fn test_sleep_settings_are_configurable() {
+    let mut world = resting_world();
+    assert!(world.get_sleep_enabled());
+    assert_eq!(world.get_sleep_threshold(), 0.01);
+    assert_eq!(world.get_sleep_steps(), 30);
+    world.set_sleep_steps(5);
+    for _ in 0..5 {
+        world.update();
+    }
+    assert!(world.is_wire_sleeping(0));
+    world.set_sleep_steps(0);
+    assert_eq!(world.get_sleep_steps(), 1);
+    world.set_sleep_threshold(-1.0); // ignored
+    assert_eq!(world.get_sleep_threshold(), 0.01);
+}
+
+#[test]
+fn test_a_sleeping_wire_is_still_drawn() {
+    let mut world = resting_world();
+    for _ in 0..40 {
+        world.update();
+    }
+    assert!(world.is_wire_sleeping(0));
+    world.build_render_data(0.5);
+    assert_eq!(drawn_points(&world).len(), 5);
+}

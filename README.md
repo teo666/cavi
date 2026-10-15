@@ -1,84 +1,58 @@
-<div align="center">
+# cavi
 
-  <h1><code>wasm-pack-template</code></h1>
+A 2D physics engine for flexible cables, written in Rust and compiled to WebAssembly.
 
-  <strong>A template for kick starting a Rust and WebAssembly project using <a href="https://github.com/rustwasm/wasm-pack">wasm-pack</a>.</strong>
+Cables ("wires") are chains of nodes simulated with Verlet integration: gravity, friction, distance
+constraints between neighbouring nodes, self-collision, and repulsion from the mouse pointer. The
+engine produces numbers only — node positions and ready-to-draw curve points — and knows nothing
+about rendering or the DOM. Its companion project, [`cavijs`](https://github.com/teo666/cavijs),
+draws the cables and provides the web components (worlds, jacks, plugs) on top of it.
 
-  <p>
-    <a href="https://travis-ci.org/rustwasm/wasm-pack-template"><img src="https://img.shields.io/travis/rustwasm/wasm-pack-template.svg?style=flat-square" alt="Build Status" /></a>
-  </p>
+## Highlights
 
-  <h3>
-    <a href="https://rustwasm.github.io/docs/wasm-pack/tutorials/npm-browser-packages/index.html">Tutorial</a>
-    <span> | </span>
-    <a href="https://discordapp.com/channels/442252698964721669/443151097398296587">Chat</a>
-  </h3>
+- **Zero-copy rendering data.** After each step the engine writes every wire's segments or Bézier
+  control points into one flat `f32` buffer, which JavaScript reads directly from WASM memory.
+- **Frame-rate independent.** `step()` advances the simulation by a fixed amount of time;
+  `build_render_data(alpha)` draws each cable between the last two steps, so a host stepping at a
+  fixed rate gets the same physics on every display and a new position on every frame of a fast one.
+- **Interaction aware.** A held wire (one being dragged) is not pushed by the pointer that drags it,
+  and a dropped cable end is thrown with the speed of the hand, not of the whole drag.
+- **Cheap at rest.** Wires that stop moving go to sleep and are skipped until something touches them.
+- **Tunable.** Time step, sub-steps, constraint iterations, friction, gravity, pointer radii and
+  sleep thresholds are all configurable.
 
-  <sub>Built with 🦀🕸 by <a href="https://rustwasm.github.io/">The Rust and WebAssembly Working Group</a></sub>
-</div>
+## Usage
 
-## About
+```js
+import init, { WasmWorld } from 'cavi';
 
-[**📚 Read this template tutorial! 📚**][template-docs]
+const wasm = await init();
+const world = new WasmWorld();
+// From (100, 100) to (400, 100): 20 nodes, 18 units apart, radius 4, Bézier rendering.
+world.add_wire_with_count(100, 100, 400, 100, 20, 18, 4, 1);
 
-This template is designed for compiling Rust libraries into WebAssembly and
-publishing the resulting package to NPM.
-
-Be sure to check out [other `wasm-pack` tutorials online][tutorials] for other
-templates and usages of `wasm-pack`.
-
-[tutorials]: https://rustwasm.github.io/docs/wasm-pack/tutorials/index.html
-[template-docs]: https://rustwasm.github.io/docs/wasm-pack/tutorials/npm-browser-packages/index.html
-
-## 🚴 Usage
-
-### 🐑 Use `cargo generate` to Clone this Template
-
-[Learn more about `cargo generate` here.](https://github.com/ashleygwilliams/cargo-generate)
-
-```
-cargo generate --git https://github.com/rustwasm/wasm-pack-template.git --name my-project
-cd my-project
+function frame() {
+  world.update(); // step() + build_render_data(1.0)
+  const data = new Float32Array(wasm.memory.buffer, world.wire_data_ptr(), world.wire_data_len());
+  // per wire: [node_count, radius, render_type, path_length, ...path points]
+  requestAnimationFrame(frame);
+}
 ```
 
-### 🛠️ Build with `wasm-pack build`
+## Build and test
 
-```
-wasm-pack build
-```
-
-### 🔬 Test in Headless Browsers with `wasm-pack test`
-
-```
-wasm-pack test --headless --firefox
+```bash
+cargo test
+wasm-pack build --target web    # output in pkg/
 ```
 
-### 🎁 Publish to NPM with `wasm-pack publish`
+## Documentation
 
-```
-wasm-pack publish
-```
-
-## 🔋 Batteries Included
-
-* [`wasm-bindgen`](https://github.com/rustwasm/wasm-bindgen) for communicating
-  between WebAssembly and JavaScript.
-* [`console_error_panic_hook`](https://github.com/rustwasm/console_error_panic_hook)
-  for logging panic messages to the developer console.
-* `LICENSE-APACHE` and `LICENSE-MIT`: most Rust projects are licensed this way, so these are included for you
+- English: [overview](doc/en/01-overview.md), [architecture](doc/en/02-architecture.md),
+  [API](doc/en/03-api.md), [development](doc/en/04-development.md)
+- Italiano: [panoramica](doc/it/01-overview.md), [architettura](doc/it/02-architecture.md),
+  [API](doc/it/03-api.md), [sviluppo](doc/it/04-development.md)
 
 ## License
 
-Licensed under either of
-
-* Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
-* MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
-
-at your option.
-
-### Contribution
-
-Unless you explicitly state otherwise, any contribution intentionally
-submitted for inclusion in the work by you, as defined in the Apache-2.0
-license, shall be dual licensed as above, without any additional terms or
-conditions.
+Dual-licensed under [Apache 2.0](LICENSE_APACHE) or [MIT](LICENSE_MIT), at your option.

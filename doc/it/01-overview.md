@@ -20,7 +20,7 @@ L'integrazione fisica e i controlli di collisione girano ad ogni frame e scalano
 
 ## Stato del progetto
 
-Questo repository è stato avviato a partire dal template [`rustwasm/wasm-pack-template`](https://github.com/rustwasm/wasm-pack-template) — il `README.md` nella root contiene ancora le istruzioni generiche del template invece della documentazione specifica del progetto; questa cartella `doc/` è la documentazione effettiva del progetto.
+Questo repository è stato avviato a partire dal template [`rustwasm/wasm-pack-template`](https://github.com/rustwasm/wasm-pack-template). Il `README.md` nella root è una breve introduzione; questa cartella `doc/` è la documentazione completa del progetto.
 
 ## Relazione con `cavijs`
 

@@ -46,7 +46,7 @@ Responsabilità a livello di cavo:
 
 ### `WasmWorld` (`world.rs`)
 Il contenitore della simulazione e il principale punto di ingresso esposto a JS:
-- Possiede tutti i `WasmWire`, la posizione del mouse e i parametri globali (`mouse_radius`, `pointer_radius`, `response_coef`, `friction`, `acceleration`).
+- Possiede tutti i `WasmWire`, la posizione del mouse, il cavo tenuto e i parametri globali (`mouse_radius`, `pointer_radius`, `response_coef`, `friction`, `acceleration`, impostazioni del passo e della sospensione).
 - `step()` esegue il ciclo fisico per **tutti** i cavi (`substeps` sotto-passi, default 2: gestione collisioni, integrazione, rilassamento vincoli). `build_render_data(alpha)` ricalcola il buffer di punti pronti per il rendering per ogni cavo, interpolato tra gli ultimi due passi. `update()` fa entrambe le cose, con `alpha = 1`.
 - Possiede `wire_data_buffer: Vec<f32>` — un buffer piatto ricostruito ad ogni chiamata di `build_render_data` ed esposto a JS tramite `wire_data_ptr()` / `wire_data_len()`, così il renderer può leggere direttamente la memoria lineare WASM (**a copia zero**) invece di attraversare il confine JS/WASM per ogni nodo.
 
@@ -54,7 +54,7 @@ Il contenitore della simulazione e il principale punto di ingresso esposto a JS:
 
 1. Ogni cavo memorizza le posizioni dei suoi nodi (`snapshot_positions`), per l'interpolazione del rendering.
 2. Per `substeps` sotto-passi (default 2):
-   a. `check_mouse_collision` — respinge i nodi vicini al mouse
+   a. salta i cavi addormentati (risvegliandone uno se il mouse è a portata), poi `check_mouse_collision` — respinge i nodi vicini al mouse: entro `mouse_radius`, oppure entro `pointer_radius` e mai sul cavo tenuto mentre un cavo è tenuto
    b. `check_wire_elements_collisions` — respinge i nodi di un cavo tra loro (self-collision)
    c. `update_with_iterations(time_step, friction, acceleration, constraint_iterations)` — integra le posizioni con Verlet (`time_step` di default 0.3), poi rilassa il vincolo di distanza tra vicini (di default una volta)
 
@@ -87,9 +87,9 @@ Questo buffer è pensato per essere letto lato JS come un'unica vista `Float32Ar
 
 - **Vincolo di distanza** (`WasmWire::update`): per ogni coppia di nodi vicini, sposta entrambi verso/da l'altro di metà del delta tra la distanza reale e `link_target_distance`, a meno che un nodo sia `fixed`.
 - **Self-collision** (`check_wire_elements_collisions`): se due nodi vicini sono più vicini del diametro del cavo, li allontana, scalato da `response_coef` (default `0.0`, cioè disabilitato, nel costruttore di `World` in `cavijs`).
-- **Collisione col mouse** (`check_mouse_collision` / `check_collision`): spinge i nodi mobili fuori da un cerchio di raggio `mouse_radius + wire.radius` attorno al mouse/puntatore.
+- **Collisione col mouse** (`check_mouse_collision` / `check_collision`): spinge i nodi mobili fuori da un cerchio di raggio `mouse_radius + wire.radius` attorno al mouse/puntatore (`pointer_radius` mentre un cavo è tenuto). `WasmWire::intersect()` confronta prima il punto con il riquadro del cavo allargato di quel raggio, e i nodi vengono confrontati per distanza al quadrato, così i cavi e i nodi lontani non costano nessuna radice quadrata.
 
-Nota: `WasmWire::intersect()` (usato per attivare la collisione col mouse) è attualmente uno stub che ritorna sempre `true` — vedi il `TODO` in `wire.rs`.
+Dopo i sotto-passi, ogni cavo sveglio conta il passo come fermo o no (`note_step`) e si addormenta dopo `sleep_steps` passi fermi — vedi [API → Sospensione](./03-api.md#sospensione).
 
 ## Test
 
