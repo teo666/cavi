@@ -46,17 +46,23 @@ Per-wire responsibilities:
 
 ### `WasmWorld` (`world.rs`)
 The simulation container and the main entry point exposed to JS:
-- Owns all `WasmWire`s, the mouse position, and global parameters (`mouse_radius`, `pointer_radius`, `response_coef`, `friction`, `acceleration`).
-- `update()` runs the physics loop for **all** wires (2 sub-iterations per call for stability: collision handling + constraint relaxation), then recomputes the render-ready point buffer for every wire.
-- Owns `wire_data_buffer: Vec<f32>` — a flat buffer rebuilt every `update()` call and exposed to JS via `wire_data_ptr()` / `wire_data_len()` so the renderer can read WASM linear memory directly (**zero-copy**) instead of crossing the JS/WASM boundary per node.
+- Owns all `WasmWire`s, the mouse position, the held wire, and global parameters (`mouse_radius`, `pointer_radius`, `response_coef`, `friction`, `acceleration`, step and sleep settings).
+- `step()` runs the physics loop for **all** wires (`substeps` sub-steps, default 2: collision handling, integration, constraint relaxation). `build_render_data(alpha)` recomputes the render-ready point buffer for every wire, interpolated between the last two steps. `update()` is both, with `alpha = 1`.
+- Owns `wire_data_buffer: Vec<f32>` — a flat buffer rebuilt by every `build_render_data` call and exposed to JS via `wire_data_ptr()` / `wire_data_len()` so the renderer can read WASM linear memory directly (**zero-copy**) instead of crossing the JS/WASM boundary per node.
 
-## Physics step, per `update()` call
+## Physics step, per `step()` call
 
-1. For 2 sub-steps:
-   a. `check_mouse_collision` — repel nodes near the mouse
+1. Every wire remembers its node positions (`snapshot_positions`), for render interpolation.
+2. For `substeps` sub-steps (default 2):
+   a. skip sleeping wires (waking one up if the mouse is within reach), then `check_mouse_collision` — repel nodes near the mouse: within `mouse_radius`, or within `pointer_radius` and never on the held wire while a wire is held
    b. `check_wire_elements_collisions` — repel a wire's nodes from each other (self-collision)
-   c. `update(dt=0.3, friction, acceleration)` — Verlet-integrate positions, then relax the neighbor distance constraint
-2. Rebuild `wire_data_buffer` for **every** wire, converting raw node positions into render-ready points according to `render_type`.
+   c. `update_with_iterations(time_step, friction, acceleration, constraint_iterations)` — Verlet-integrate positions (default `time_step` 0.3), then relax the neighbor distance constraint (default once)
+
+## Render data, per `build_render_data(alpha)` call
+
+Rebuilds `wire_data_buffer` for **every** wire, converting node positions into render-ready points according to `render_type`. Each movable node is drawn at `prev + (curr - prev) * alpha`, where `prev` is its position before the last step. Fixed nodes, and every node of a wire whose node count changed since the last step, are drawn where they are now: a fixed node is placed by the app (a plugged or dragged end) and must not trail behind it.
+
+The step has a fixed time delta, and with Verlet integration the velocity is implicit (`curr - old`) and only valid for a constant step; friction is applied per step too. So the host should not vary the step's duration with the frame rate. It should call `step()` at a fixed rate, and `build_render_data(leftover / step_duration)` on every frame: drawing trails the simulation by at most one step, and a display faster than the step rate gets a new position on every frame.
 
 ## Curve generation
 
@@ -81,9 +87,9 @@ This buffer is designed to be read on the JS side as a single `Float32Array` vie
 
 - **Distance constraint** (`WasmWire::update`): for each pair of neighboring nodes, nudges both toward/away from each other by half the delta between actual distance and `link_target_distance`, unless a node is `fixed`.
 - **Self-collision** (`check_wire_elements_collisions`): if two neighboring nodes are closer than the wire's diameter, pushes them apart, scaled by `response_coef` (defaults to `0.0`, i.e. disabled, in `cavijs`'s `World` constructor).
-- **Mouse collision** (`check_mouse_collision` / `check_collision`): pushes movable nodes outside a circle of radius `mouse_radius + wire.radius` around the mouse/pointer.
+- **Mouse collision** (`check_mouse_collision` / `check_collision`): pushes movable nodes outside a circle of radius `mouse_radius + wire.radius` around the mouse/pointer (`pointer_radius` while a wire is held). `WasmWire::intersect()` first checks the point against the wire's bounding box grown by that radius, and nodes are compared by squared distance, so far wires and far nodes cost no square root.
 
-Note: `WasmWire::intersect()` (used to gate mouse collision) is currently a stub that always returns `true` — see the `TODO` in `wire.rs`.
+After the sub-steps, every awake wire counts the step as still or not (`note_step`) and goes to sleep after `sleep_steps` still steps — see [API → Sleeping](./03-api.md#sleeping).
 
 ## Tests
 
@@ -91,5 +97,6 @@ Unit tests live alongside `lib.rs` and are gated with `#[cfg(test)]`:
 - `point_tests.rs` — `WasmPoint` vector math
 - `node_tests.rs` — `WasmNode` integration/state behavior
 - `wire_tests.rs` — `WasmWire` constraint/collision behavior
+- `world_tests.rs` — `WasmWorld` stepping, render interpolation and configuration
 
 Browser-based integration tests live in `tests/web.rs` (run via `wasm-pack test --headless --firefox`).

@@ -6,7 +6,18 @@ use crate::world::node::WasmNode as WasmNode;
 #[derive(Clone)]
 pub struct WasmWire {
     nodes: Vec<WasmNode>,
-    pub iterations: u32,
+    /// Node positions at the start of the last world step, for render
+    /// interpolation (see WasmWorld::build_render_data). Empty until the
+    /// first step.
+    prev_positions: Vec<WasmPoint>,
+    /// Consecutive world steps in which no node moved more than the world's
+    /// sleep threshold (see WasmWorld::step / note_step).
+    quiet_steps: u32,
+    /// Asleep: skipped by the simulation until woken (see invalidate).
+    asleep: bool,
+    /// Bounding box of the nodes, kept while asleep (nodes don't move then).
+    sleep_min: WasmPoint,
+    sleep_max: WasmPoint,
     pub radius: f32,
     pub link_target_distance: f32,
     pub render_type: u8, // 0 = segments, 1 = bezier
@@ -22,8 +33,12 @@ impl WasmWire {
             })
             .collect();
         let mut w = WasmWire {
-            iterations: 10,
             nodes,
+            prev_positions: Vec::new(),
+            quiet_steps: 0,
+            asleep: false,
+            sleep_min: WasmPoint::zero(),
+            sleep_max: WasmPoint::zero(),
             link_target_distance: 7.0,
             radius: 5.0,
             render_type: 1, // Default to bezier
@@ -34,14 +49,15 @@ impl WasmWire {
 
     /// Creates a wire between two points with specified radius
     pub fn new_wire(xs: f32, ys: f32, xe: f32, ye: f32, radius: f32) -> WasmWire {
-        let mut nodes = vec![WasmNode::new_no_vel(xs, ys, true), WasmNode::new_no_vel(xe, ye, true)];
-        let optimal_len = WasmWire::optimal_length(nodes[0].get_position(), nodes[nodes.len() - 1].get_position(), radius);
-        for _i in 1..optimal_len {
-            nodes.insert(1, WasmNode::new_no_vel(100.0, 110.0, false))
-        }
+        let optimal_len = WasmWire::optimal_length(WasmPoint { x: xs, y: ys }, WasmPoint { x: xe, y: ye }, radius);
+        let nodes = WasmWire::straight_nodes(xs, ys, xe, ye, optimal_len + 1);
         let mut w = WasmWire {
-            iterations: 10,
             nodes,
+            prev_positions: Vec::new(),
+            quiet_steps: 0,
+            asleep: false,
+            sleep_min: WasmPoint::zero(),
+            sleep_max: WasmPoint::zero(),
             link_target_distance: radius * 3.0,
             radius,
             render_type: 1, // Default to bezier
@@ -56,17 +72,16 @@ impl WasmWire {
             panic!("Wire must have at least 2 nodes");
         }
         
-        // Create start and end nodes as fixed points
-        let mut nodes = vec![WasmNode::new_no_vel(xs, ys, true), WasmNode::new_no_vel(xe, ye, true)];
-        
-        // Insert movable nodes in between
-        for _i in 1..node_count - 1 {
-            nodes.insert(1, WasmNode::new_no_vel(100.0, 110.0, false))
-        }
-        
+        // Fixed start and end, movable nodes evenly spaced in between.
+        let nodes = WasmWire::straight_nodes(xs, ys, xe, ye, node_count);
+
         let mut w = WasmWire {
-            iterations: 10,
             nodes,
+            prev_positions: Vec::new(),
+            quiet_steps: 0,
+            asleep: false,
+            sleep_min: WasmPoint::zero(),
+            sleep_max: WasmPoint::zero(),
             link_target_distance: link_target,
             radius,
             render_type,
@@ -99,10 +114,24 @@ impl WasmWire {
         self.nodes.get(index).map(|n| n.get_y()).unwrap_or(0.0)
     }
 
-    /// Sets the radius of the wire
+    /// Sets the radius (thickness) of the wire. Does not change the distance
+    /// between nodes — see set_link_distance.
     pub fn set_radius(&mut self, radius: f32) {
         self.radius = radius;
-        self.link_target_distance = radius * 3.0;
+        self.invalidate();
+    }
+
+    /// Rest distance between neighbouring nodes (the cable's "tension")
+    pub fn get_link_distance(&self) -> f32 {
+        self.link_target_distance
+    }
+
+    /// Sets the rest distance between neighbouring nodes
+    pub fn set_link_distance(&mut self, distance: f32) {
+        if distance.is_finite() && distance > 0.0 {
+            self.link_target_distance = distance;
+            self.invalidate();
+        }
     }
 
     /// Adds a new node at the specified position
@@ -192,18 +221,18 @@ impl WasmWire {
         self.nodes.last().map(|n| n.get_position()).unwrap_or(WasmPoint::zero())
     }
 
-    /// Sets the start point position (if it's fixed)
+    /// Places the start node (see WasmNode::move_to)
     pub fn set_start(&mut self, x: f32, y: f32) {
         if let Some(node) = self.nodes.first_mut() {
-            node.set_position(x, y);
+            node.move_to(x, y);
             self.invalidate();
         }
     }
 
-    /// Sets the end point position (if it's fixed)
+    /// Places the end node (see WasmNode::move_to)
     pub fn set_end(&mut self, x: f32, y: f32) {
         if let Some(node) = self.nodes.last_mut() {
-            node.set_position(x, y);
+            node.move_to(x, y);
             self.invalidate();
         }
     }
@@ -212,13 +241,15 @@ impl WasmWire {
     pub fn set_node_fixed(&mut self, node_idx: usize, fixed: bool) {
         if let Some(node) = self.nodes.get_mut(node_idx) {
             node.set_fixed(fixed);
+            // A released end must start falling.
+            self.invalidate();
         }
     }
 
-    /// Sets the position of a specific node
+    /// Places a node from outside the simulation (see WasmNode::move_to)
     pub fn set_node_position(&mut self, node_idx: usize, x: f32, y: f32) {
         if let Some(node) = self.nodes.get_mut(node_idx) {
-            node.set_position(x, y);
+            node.move_to(x, y);
             self.invalidate();
         }
     }
@@ -236,13 +267,17 @@ impl WasmWire {
     pub fn check_collision(&mut self, point: &WasmPoint, pointer_radius: f32) {
         let mut reset = false;
         let rad = self.radius + pointer_radius;
+        if !self.intersect(point, rad) {
+            return;
+        }
         for node in &mut self.nodes {
             let dt = node.get_position() - *point;
-            let i = dt.x.hypot(dt.y);
-            if i == 0.0 {
+            let d2 = dt.x * dt.x + dt.y * dt.y;
+            if d2 == 0.0 || d2 >= rad * rad {
                 continue;
             }
-            if node.is_movable() && i < rad {
+            let i = d2.sqrt();
+            if node.is_movable() {
                 reset = true;
                 node.set_position(
                     point.x + (dt.x / i) * rad,
@@ -257,10 +292,30 @@ impl WasmWire {
 
     /// Updates the wire physics simulation
     pub fn update(&mut self, dt: f32, friction: f32, acceleration: WasmPoint) {
+        self.update_with_iterations(dt, friction, acceleration, 1);
+    }
+
+    /// Integrates every node by `dt`, then relaxes the distance between
+    /// neighbouring nodes `iterations` times. More iterations make the
+    /// cable stiffer (less stretch) without making the simulation faster.
+    pub fn update_with_iterations(&mut self, dt: f32, friction: f32, acceleration: WasmPoint, iterations: u32) {
         for node in self.nodes.iter_mut() {
             node.update_position(dt, friction, acceleration);
         }
 
+        for _ in 0..iterations.max(1) {
+            self.relax_links();
+        }
+    }
+
+    /// Whether the node at `index` is fixed (false if out of range).
+    pub fn is_node_fixed(&self, index: usize) -> bool {
+        self.nodes.get(index).map(|n| n.get_fixed()).unwrap_or(false)
+    }
+
+    /// One pass moving every pair of neighbouring nodes towards
+    /// `link_target_distance` from each other.
+    fn relax_links(&mut self) {
         for i in 1..self.nodes.len() {
             let (left, right) = self.nodes.split_at_mut(i);
             let o1 = &mut left[left.len() - 1];
@@ -320,19 +375,18 @@ impl WasmWire {
     /// Checks collision with mouse/pointer position
     pub fn check_mouse_collision(&mut self, mouse: WasmPoint, mouse_radius: f32) {
         let mut reset = false;
-        if self.intersect(&mouse) {
+        let rad = mouse_radius + self.radius;
+        if self.intersect(&mouse, rad) {
             for n in self.nodes.iter_mut() {
                 let d = n.get_position() - mouse;
-                let i = d.x.hypot(d.y);
-                if i == 0.0 {
+                let d2 = d.x * d.x + d.y * d.y;
+                if d2 == 0.0 || d2 >= rad * rad {
                     continue;
                 }
-                if n.is_movable() && i < (mouse_radius + self.radius) {
+                let i = d2.sqrt();
+                if n.is_movable() {
                     reset = true;
-                    n.set_position(
-                        mouse.x + (d.x / i) * (mouse_radius + self.radius),
-                        mouse.y + (d.y / i) * (mouse_radius + self.radius)
-                    );
+                    n.set_position(mouse.x + (d.x / i) * rad, mouse.y + (d.y / i) * rad);
                 }
             }
             if reset {
@@ -341,9 +395,17 @@ impl WasmWire {
         }
     }
 
-    /// Resets the iteration counter
+    /// Wakes the wire up (see is_sleeping) and restarts its count of still
+    /// steps — called by every change that can set it in motion.
     pub fn invalidate(&mut self) {
-        self.iterations = 0;
+        self.quiet_steps = 0;
+        self.asleep = false;
+    }
+
+    /// Whether the wire is asleep: it stopped moving, so the world skips it
+    /// until something wakes it (see WasmWorld::set_sleep_enabled).
+    pub fn is_sleeping(&self) -> bool {
+        self.asleep
     }
 
     pub fn optimal_length(start: WasmPoint, end: WasmPoint, node_radius: f32) -> usize {
@@ -354,14 +416,122 @@ impl WasmWire {
 
 // Non-wasm methods
 impl WasmWire {
-    /// Returns a reference to the nodes (for internal use by World)
-    pub(crate) fn get_nodes(&self) -> &Vec<WasmNode> {
-        &self.nodes
+    /// `count` nodes evenly spaced on the segment from (xs, ys) to (xe, ye):
+    /// fixed at both ends, movable in between.
+    fn straight_nodes(xs: f32, ys: f32, xe: f32, ye: f32, count: usize) -> Vec<WasmNode> {
+        let count = count.max(2);
+        (0..count)
+            .map(|i| {
+                let t = i as f32 / (count - 1) as f32;
+                let terminal = i == 0 || i == count - 1;
+                WasmNode::new_no_vel(xs + (xe - xs) * t, ys + (ye - ys) * t, terminal)
+            })
+            .collect()
     }
 
-    fn intersect(&self, _point: &WasmPoint) -> bool {
-        // TODO: implement proper collision detection with the wire
-        true
+    /// Remembers the current node positions as the "previous" state for
+    /// render interpolation — called by the world at the start of a step.
+    pub(crate) fn snapshot_positions(&mut self) {
+        self.prev_positions.clear();
+        self.prev_positions.extend(self.nodes.iter().map(|n| n.get_position()));
+        for n in self.nodes.iter_mut() {
+            n.begin_step();
+        }
+    }
+
+    /// Where node `index` should be drawn: `alpha` of the way from its
+    /// position before the last step to its current one. Fixed nodes, and
+    /// every node when the node count changed since the last step, are
+    /// drawn where they are now — a fixed node is placed by the app (a
+    /// plugged or dragged end) and must not lag behind it.
+    pub(crate) fn render_position(&self, index: usize, alpha: f32) -> WasmPoint {
+        let node = match self.nodes.get(index) {
+            Some(node) => node,
+            None => return WasmPoint::zero(),
+        };
+        let curr = node.get_position();
+        if node.get_fixed() || alpha >= 1.0 || self.prev_positions.len() != self.nodes.len() {
+            return curr;
+        }
+        let prev = self.prev_positions[index];
+        WasmPoint {
+            x: prev.x + (curr.x - prev.x) * alpha,
+            y: prev.y + (curr.y - prev.y) * alpha,
+        }
+    }
+
+    /// render_position for every node, in order.
+    pub(crate) fn render_positions(&self, alpha: f32) -> Vec<WasmPoint> {
+        (0..self.nodes.len()).map(|i| self.render_position(i, alpha)).collect()
+    }
+
+    /// Unfixes a node held by the app, throwing it with the velocity it had
+    /// while held: how far the app moved it over the most recent step
+    /// interval (WasmNode::held_motion), spread over the step's `substeps`.
+    /// A node held still is just released; a node that was already free is
+    /// left as it is.
+    pub(crate) fn release_node(&mut self, index: usize, substeps: u32) {
+        if let Some(node) = self.nodes.get_mut(index) {
+            if !node.get_fixed() {
+                return;
+            }
+            node.set_fixed(false);
+            let curr = node.get_position();
+            node.position.old = curr - node.held_motion() / substeps.max(1) as f32;
+            self.invalidate();
+        }
+    }
+
+    /// Whether `point` is within `reach` of the wire's bounding box — a
+    /// cheap test that rules out most wires before checking every node.
+    pub(crate) fn intersect(&self, point: &WasmPoint, reach: f32) -> bool {
+        let (min, max) = if self.asleep { (self.sleep_min, self.sleep_max) } else { self.bounds() };
+        point.x >= min.x - reach && point.x <= max.x + reach && point.y >= min.y - reach && point.y <= max.y + reach
+    }
+
+    /// Bounding box of the nodes' current positions.
+    fn bounds(&self) -> (WasmPoint, WasmPoint) {
+        let mut min = WasmPoint { x: f32::INFINITY, y: f32::INFINITY };
+        let mut max = WasmPoint { x: f32::NEG_INFINITY, y: f32::NEG_INFINITY };
+        for n in &self.nodes {
+            let p = n.get_position();
+            min.x = min.x.min(p.x);
+            min.y = min.y.min(p.y);
+            max.x = max.x.max(p.x);
+            max.y = max.y.max(p.y);
+        }
+        (min, max)
+    }
+
+    /// Called by the world after each step of an awake wire: counts the
+    /// step as still if no node moved more than `threshold` since the
+    /// step's snapshot, and puts the wire to sleep after `steps_needed`
+    /// still steps in a row — dropping the nodes' residual velocity, so it
+    /// doesn't jump when woken.
+    pub(crate) fn note_step(&mut self, threshold: f32, steps_needed: u32) {
+        if self.prev_positions.len() != self.nodes.len() {
+            self.quiet_steps = 0;
+            return;
+        }
+        let t2 = threshold * threshold;
+        let still = self.nodes.iter().zip(&self.prev_positions).all(|(n, prev)| {
+            let d = n.get_position() - *prev;
+            d.x * d.x + d.y * d.y <= t2
+        });
+        if !still {
+            self.quiet_steps = 0;
+            return;
+        }
+        self.quiet_steps += 1;
+        if self.quiet_steps >= steps_needed {
+            for n in self.nodes.iter_mut() {
+                n.position.old = n.position.curr;
+            }
+            let (min, max) = self.bounds();
+            self.sleep_min = min;
+            self.sleep_max = max;
+            self.asleep = true;
+        }
     }
 
     fn diameter(&self) -> f32 {
