@@ -257,6 +257,44 @@ impl WasmWorld {
         }
     }
 
+    /// Resistance to bending of a wire, 0 (a chain, the default) to 1 (0 if
+    /// out of range) — see set_wire_bend_stiffness
+    pub fn get_wire_bend_stiffness(&self, wire_idx: usize) -> f32 {
+        self.wires.get(wire_idx).map(|wire| wire.get_bend_stiffness()).unwrap_or(0.0)
+    }
+
+    /// Sets how much a wire resists bending, clamped to 0..=1: at 0 it is a
+    /// chain of links that hangs straight down from a point and folds
+    /// anywhere; stiffer, it curves smoothly, like a real cable. Acts once
+    /// per constraint iteration, so it adds up with set_constraint_iterations
+    /// (about 1 - (1 - k)^n). Wakes the wire.
+    pub fn set_wire_bend_stiffness(&mut self, wire_idx: usize, stiffness: f32) {
+        if let Some(wire) = self.wires.get_mut(wire_idx) {
+            wire.set_bend_stiffness(stiffness);
+        }
+    }
+
+    /// Sets the way end `end` of a wire (0: its first node, otherwise its
+    /// last) leaves its anchor — a plug's direction out of its jack, an
+    /// edge's out of its handle. With a bend stiffness, the wire then leaves
+    /// that end along it and curves away gradually. (0, 0) clears it.
+    /// Wakes the wire.
+    pub fn set_wire_end_direction(&mut self, wire_idx: usize, end: usize, dx: f32, dy: f32) {
+        if let Some(wire) = self.wires.get_mut(wire_idx) {
+            wire.set_end_direction(end, dx, dy);
+        }
+    }
+
+    /// x of the direction of end `end` of a wire (0 if unset or out of range)
+    pub fn get_wire_end_direction_x(&self, wire_idx: usize, end: usize) -> f32 {
+        self.wires.get(wire_idx).map(|wire| wire.get_end_direction_x(end)).unwrap_or(0.0)
+    }
+
+    /// y of the direction of end `end` of a wire (0 if unset or out of range)
+    pub fn get_wire_end_direction_y(&self, wire_idx: usize, end: usize) -> f32 {
+        self.wires.get(wire_idx).map(|wire| wire.get_end_direction_y(end)).unwrap_or(0.0)
+    }
+
     /// Marks a wire as held by the user (one of its ends is being dragged):
     /// while held, the mouse pushes the other wires within `pointer_radius`
     /// and leaves the held wire alone — otherwise the mouse, sitting on the

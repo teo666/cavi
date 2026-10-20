@@ -394,3 +394,170 @@ fn test_the_render_type_of_a_wire_can_be_changed() {
     assert_eq!(world.get_wire_render_type(0), 1);
     assert!(buffer(&world)[3] > segments); // bezier: 3 points per segment
 }
+
+// Bend stiffness and end directions (WasmWire::relax_bends).
+
+/// A world with no gravity and the mouse out of reach.
+fn still_world() -> World {
+    let mut world = World::new();
+    world.set_mouse(-1e6, -1e6);
+    world.set_acceleration(0.0, 0.0);
+    world
+}
+
+/// A world with three nodes, the middle one lifted to (50, 20): links of
+/// exactly that length, so only bending can move it.
+fn bent_world(stiffness: f32) -> World {
+    let mut world = still_world();
+    let link = (50.0f32).hypot(20.0);
+    world.add_wire_with_count(0.0, 0.0, 100.0, 0.0, 3, link, 4.0, 0);
+    world.set_wire_node_position(0, 1, 50.0, 20.0);
+    world.set_wire_bend_stiffness(0, stiffness);
+    world
+}
+
+/// The largest turn between consecutive links of wire 0, in radians.
+fn sharpest_turn(world: &World) -> f32 {
+    let n = world.get_wire_node_count(0);
+    let p = |i: usize| (world.get_wire_node_x(0, i), world.get_wire_node_y(0, i));
+    (1..n - 1)
+        .map(|i| {
+            let (a, b, c) = (p(i - 1), p(i), p(i + 1));
+            let d1 = (b.1 - a.1).atan2(b.0 - a.0);
+            let d2 = (c.1 - b.1).atan2(c.0 - b.0);
+            let mut turn = (d2 - d1).abs();
+            if turn > std::f32::consts::PI {
+                turn = 2.0 * std::f32::consts::PI - turn;
+            }
+            turn
+        })
+        .fold(0.0, f32::max)
+}
+
+#[test]
+fn test_bend_stiffness_defaults_to_zero_and_is_clamped() {
+    let mut world = still_world();
+    world.add_wire_with_count(0.0, 0.0, 100.0, 0.0, 5, 25.0, 4.0, 0);
+    assert_eq!(world.get_wire_bend_stiffness(0), 0.0);
+    world.set_wire_bend_stiffness(0, 2.0);
+    assert_eq!(world.get_wire_bend_stiffness(0), 1.0);
+    world.set_wire_bend_stiffness(0, -1.0);
+    assert_eq!(world.get_wire_bend_stiffness(0), 0.0);
+    world.set_wire_bend_stiffness(0, 0.3);
+    world.set_wire_bend_stiffness(0, f32::NAN); // ignored
+    assert_eq!(world.get_wire_bend_stiffness(0), 0.3);
+    assert_eq!(world.get_wire_bend_stiffness(9), 0.0); // out of range
+}
+
+#[test]
+fn test_without_bend_stiffness_a_bent_wire_stays_bent() {
+    let mut world = bent_world(0.0);
+    world.update();
+    assert!((world.get_wire_node_y(0, 1) - 20.0).abs() < 1e-3);
+}
+
+#[test]
+fn test_bend_stiffness_straightens_a_bent_wire() {
+    let mut world = bent_world(0.5);
+    world.update();
+    let y = world.get_wire_node_y(0, 1);
+    assert!(y < 19.0, "middle node at y = {}", y);
+}
+
+#[test]
+fn test_fixed_nodes_never_move_however_stiff() {
+    let mut world = bent_world(1.0);
+    for _ in 0..50 {
+        world.update();
+    }
+    assert_eq!((world.get_wire_node_x(0, 0), world.get_wire_node_y(0, 0)), (0.0, 0.0));
+    assert_eq!((world.get_wire_node_x(0, 2), world.get_wire_node_y(0, 2)), (100.0, 0.0));
+}
+
+#[test]
+fn test_a_stiff_hanging_wire_curves_instead_of_folding() {
+    // 240 of rope from (0, 0) down to (40, 200): a chain drops straight
+    // down like a plumb line and folds where the rope runs out; a cable
+    // curves all along instead.
+    let hang = |stiffness: f32| {
+        let mut world = World::new();
+        world.set_mouse(-1e6, -1e6);
+        world.set_sleep_enabled(false);
+        world.set_acceleration(0.0, 5.0);
+        world.set_constraint_iterations(4);
+        world.add_wire_with_count(0.0, 0.0, 40.0, 200.0, 13, 20.0, 4.0, 0);
+        world.set_wire_bend_stiffness(0, stiffness);
+        for _ in 0..600 {
+            world.update();
+        }
+        sharpest_turn(&world)
+    };
+    let chain = hang(0.0);
+    let cable = hang(0.3);
+    assert!(chain > 1.5, "the chain folds: sharpest turn {}", chain);
+    assert!(cable < 0.6, "the cable curves: sharpest turn {}", cable);
+}
+
+#[test]
+fn test_an_end_direction_pulls_the_cable_out_along_it() {
+    let straight = |direction: Option<(f32, f32)>| {
+        let mut world = still_world();
+        world.add_wire_with_count(0.0, 0.0, 100.0, 0.0, 5, 25.0, 4.0, 0);
+        world.set_wire_bend_stiffness(0, 0.5);
+        if let Some((dx, dy)) = direction {
+            world.set_wire_end_direction(0, 0, dx, dy);
+            world.set_wire_end_direction(0, 1, dx, dy);
+        }
+        for _ in 0..20 {
+            world.update();
+        }
+        (world.get_wire_node_y(0, 1), world.get_wire_node_y(0, 3))
+    };
+    assert_eq!(straight(None), (0.0, 0.0));
+    // Both ends leave downwards: the nodes next to them go down.
+    let (first, last) = straight(Some((0.0, 1.0)));
+    assert!(first > 1.0 && last > 1.0, "nodes next to the ends at y = {}, {}", first, last);
+}
+
+#[test]
+fn test_an_end_direction_is_normalized_and_can_be_cleared() {
+    let mut world = still_world();
+    world.add_wire_with_count(0.0, 0.0, 100.0, 0.0, 5, 25.0, 4.0, 0);
+    world.set_wire_end_direction(0, 1, 0.0, -3.0);
+    assert_eq!((world.get_wire_end_direction_x(0, 1), world.get_wire_end_direction_y(0, 1)), (0.0, -1.0));
+    assert_eq!((world.get_wire_end_direction_x(0, 0), world.get_wire_end_direction_y(0, 0)), (0.0, 0.0));
+    world.set_wire_end_direction(0, 1, 0.0, 0.0);
+    assert_eq!(world.get_wire_end_direction_y(0, 1), 0.0);
+}
+
+#[test]
+fn test_bend_settings_survive_resizing_the_wire() {
+    let mut world = still_world();
+    world.add_wire_with_count(0.0, 0.0, 100.0, 0.0, 5, 25.0, 4.0, 0);
+    world.set_wire_bend_stiffness(0, 0.4);
+    world.set_wire_end_direction(0, 0, 1.0, 0.0);
+    world.set_wire_node_count(0, 9);
+    world.add_wire_node_at(0, 4, 50.0, 0.0, false);
+    world.remove_wire_node(0, 2);
+    assert_eq!(world.get_wire_bend_stiffness(0), 0.4);
+    assert_eq!(world.get_wire_end_direction_x(0, 0), 1.0);
+}
+
+#[test]
+fn test_changing_bend_settings_wakes_a_sleeping_wire() {
+    let mut world = resting_world();
+    for _ in 0..40 {
+        world.update();
+    }
+    assert!(world.is_wire_sleeping(0));
+    world.set_wire_bend_stiffness(0, 0.5);
+    assert!(!world.is_wire_sleeping(0));
+
+    for _ in 0..40 {
+        world.update();
+    }
+    assert!(world.is_wire_sleeping(0));
+    world.set_wire_end_direction(0, 0, 0.0, 1.0);
+    assert!(!world.is_wire_sleeping(0));
+}
+
