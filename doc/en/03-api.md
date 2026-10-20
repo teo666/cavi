@@ -33,6 +33,9 @@ The main simulation container. Constructed with `new WasmWorld()`.
 | `set_wire_start(wire_idx, x, y)` / `set_wire_end(wire_idx, x, y)` | Move the fixed endpoints |
 | `get_wire_radius(wire_idx) -> f32` / `set_wire_radius(wire_idx, radius)` | Wire thickness (does not change the distance between nodes) |
 | `get_wire_link_distance(wire_idx) -> f32` / `set_wire_link_distance(wire_idx, distance)` | Rest distance between neighbouring nodes |
+| `get_wire_bend_stiffness(wire_idx) -> f32` / `set_wire_bend_stiffness(wire_idx, stiffness)` | Resistance to bending, `0` (a chain, the default) to `1`: stiffer, the wire curves smoothly instead of hanging straight down and folding anywhere. Applied once per constraint iteration, so it adds up with `constraint_iterations` (about `1 - (1 - k)^n`). Wakes the wire |
+| `set_wire_end_direction(wire_idx, end, dx, dy)` | The direction end `end` (`0`: first node, otherwise last) leaves its anchor by — a plug out of its jack; with a bend stiffness the wire leaves that end along it and curves away gradually. `(0, 0)` clears it. Wakes the wire |
+| `get_wire_end_direction_x/y(wire_idx, end) -> f32` | That direction (`0, 0` if unset) |
 | `get_wire_render_type(wire_idx) -> u8` / `set_wire_render_type(wire_idx, render_type)` | Render type of a wire (`0` = segments, `1` = bezier), used by the next `build_render_data` |
 | `is_wire_sleeping(wire_idx) -> bool` | Whether a wire is asleep (see [Sleeping](#sleeping)) |
 
