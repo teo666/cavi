@@ -21,6 +21,12 @@ pub struct WasmWire {
     pub radius: f32,
     pub link_target_distance: f32,
     pub render_type: u8, // 0 = segments, 1 = bezier
+    /// Resistance to bending, from 0 (a chain of links, the default) to 1 —
+    /// see relax_bends.
+    bend_stiffness: f32,
+    /// The way each end (first node, last node) leaves its anchor, as a unit
+    /// vector, if set — see relax_bends.
+    end_directions: [Option<WasmPoint>; 2],
 }
 
 #[wasm_bindgen]
@@ -42,6 +48,8 @@ impl WasmWire {
             link_target_distance: 7.0,
             radius: 5.0,
             render_type: 1, // Default to bezier
+            bend_stiffness: 0.0,
+            end_directions: [None, None],
         };
         w.invalidate();
         w
@@ -61,6 +69,8 @@ impl WasmWire {
             link_target_distance: radius * 3.0,
             radius,
             render_type: 1, // Default to bezier
+            bend_stiffness: 0.0,
+            end_directions: [None, None],
         };
         w.invalidate();
         w
@@ -85,6 +95,8 @@ impl WasmWire {
             link_target_distance: link_target,
             radius,
             render_type,
+            bend_stiffness: 0.0,
+            end_directions: [None, None],
         };
         w.invalidate();
         w
@@ -305,7 +317,48 @@ impl WasmWire {
 
         for _ in 0..iterations.max(1) {
             self.relax_links();
+            self.relax_bends();
         }
+    }
+
+    /// Resistance to bending, from 0 (a chain, the default) to 1.
+    pub fn get_bend_stiffness(&self) -> f32 {
+        self.bend_stiffness
+    }
+
+    /// Sets the resistance to bending, clamped to 0..=1 (see relax_bends).
+    /// It adds up over the relaxation passes: with `n` constraint
+    /// iterations, a stiffness `k` acts like about 1 - (1 - k)^n.
+    pub fn set_bend_stiffness(&mut self, stiffness: f32) {
+        if stiffness.is_finite() {
+            self.bend_stiffness = stiffness.max(0.0).min(1.0);
+            self.invalidate();
+        }
+    }
+
+    /// Sets the way end `end` (0: first node, otherwise the last) leaves its
+    /// anchor — a plug's direction out of its jack — normalized; a zero or
+    /// non-finite vector clears it. Only acts with a bend stiffness (see
+    /// relax_bends).
+    pub fn set_end_direction(&mut self, end: usize, dx: f32, dy: f32) {
+        let length = dx.hypot(dy);
+        let direction = if length.is_finite() && length > 0.0 {
+            Some(WasmPoint { x: dx / length, y: dy / length })
+        } else {
+            None
+        };
+        self.end_directions[if end == 0 { 0 } else { 1 }] = direction;
+        self.invalidate();
+    }
+
+    /// x of the direction of end `end` (see set_end_direction), 0 if unset.
+    pub fn get_end_direction_x(&self, end: usize) -> f32 {
+        self.end_directions[if end == 0 { 0 } else { 1 }].map(|d| d.x).unwrap_or(0.0)
+    }
+
+    /// y of the direction of end `end` (see set_end_direction), 0 if unset.
+    pub fn get_end_direction_y(&self, end: usize) -> f32 {
+        self.end_directions[if end == 0 { 0 } else { 1 }].map(|d| d.y).unwrap_or(0.0)
     }
 
     /// Whether the node at `index` is fixed (false if out of range).
@@ -339,6 +392,76 @@ impl WasmWire {
                 let new_pos = o2.get_position() - fact * 0.5 * delta;
                 o2.set_position(new_pos.x, new_pos.y);
             }
+        }
+    }
+
+    /// One pass straightening every three consecutive nodes a, b, c by
+    /// `bend_stiffness`: the cable resists bending, so it curves smoothly
+    /// instead of folding at any node (a hanging chain drops straight down
+    /// and bends only at its lowest point). Position-based: the curvature
+    /// a + c - 2b is reduced by `bend_stiffness`, the correction shared out
+    /// by inverse mass, so a fixed node never moves and the link lengths are
+    /// left to relax_links. An end with a direction gets the same treatment
+    /// against a virtual fixed node `link_target_distance` behind it: the
+    /// cable leaves that end along its direction, curving away gradually.
+    fn relax_bends(&mut self) {
+        let k = self.bend_stiffness;
+        let n = self.nodes.len();
+        if k <= 0.0 || n < 2 {
+            return;
+        }
+        let weight = |node: &WasmNode| if node.is_movable() { 1.0 } else { 0.0 };
+
+        if let Some(d) = self.end_directions[0] {
+            let behind = self.nodes[0].get_position() - d * self.link_target_distance;
+            let (_, b, c) = bend(
+                behind,
+                self.nodes[0].get_position(),
+                self.nodes[1].get_position(),
+                0.0,
+                weight(&self.nodes[0]),
+                weight(&self.nodes[1]),
+                k,
+            );
+            self.shift(0, b);
+            self.shift(1, c);
+        }
+        for i in 1..n - 1 {
+            let (a, b, c) = bend(
+                self.nodes[i - 1].get_position(),
+                self.nodes[i].get_position(),
+                self.nodes[i + 1].get_position(),
+                weight(&self.nodes[i - 1]),
+                weight(&self.nodes[i]),
+                weight(&self.nodes[i + 1]),
+                k,
+            );
+            self.shift(i - 1, a);
+            self.shift(i, b);
+            self.shift(i + 1, c);
+        }
+        if let Some(d) = self.end_directions[1] {
+            let behind = self.nodes[n - 1].get_position() - d * self.link_target_distance;
+            let (a, b, _) = bend(
+                self.nodes[n - 2].get_position(),
+                self.nodes[n - 1].get_position(),
+                behind,
+                weight(&self.nodes[n - 2]),
+                weight(&self.nodes[n - 1]),
+                0.0,
+                k,
+            );
+            self.shift(n - 2, a);
+            self.shift(n - 1, b);
+        }
+    }
+
+    /// Moves a movable node by `delta` (as a constraint does: see set_position).
+    fn shift(&mut self, index: usize, delta: WasmPoint) {
+        let node = &mut self.nodes[index];
+        if node.is_movable() && (delta.x != 0.0 || delta.y != 0.0) {
+            let p = node.get_position() + delta;
+            node.set_position(p.x, p.y);
         }
     }
 
@@ -538,4 +661,18 @@ impl WasmWire {
         self.radius * 2.0
     }
 
+}
+
+/// The corrections straightening a, b, c by `k` (see WasmWire::relax_bends):
+/// the curvature C = a + c - 2b, reduced as a position-based constraint
+/// with inverse masses `wa`, `wb`, `wc` (0 for a fixed node).
+fn bend(a: WasmPoint, b: WasmPoint, c: WasmPoint, wa: f32, wb: f32, wc: f32, k: f32) -> (WasmPoint, WasmPoint, WasmPoint) {
+    let zero = WasmPoint::zero();
+    let s = wa + wc + 4.0 * wb;
+    if s == 0.0 {
+        return (zero, zero, zero);
+    }
+    let curvature = a + c - b * 2.0;
+    let f = k / s;
+    (curvature * (-f * wa), curvature * (2.0 * f * wb), curvature * (-f * wc))
 }

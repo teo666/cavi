@@ -18,6 +18,10 @@ draws the cables and provides the web components (worlds, jacks, plugs) on top o
 - **Interaction aware.** A held wire (one being dragged) is not pushed by the pointer that drags it,
   and a dropped cable end is thrown with the speed of the hand, not of the whole drag.
 - **Cheap at rest.** Wires that stop moving go to sleep and are skipped until something touches them.
+- **Cables, not just chains.** A wire can resist bending (`set_wire_bend_stiffness`, 0 to 1): instead
+  of hanging straight down from a point and folding where the rope runs out, it curves all along.
+  Each end can be given the direction it leaves its anchor by (`set_wire_end_direction`), like a plug
+  out of a jack. Off by default.
 - **Tunable.** Time step, sub-steps, constraint iterations, friction, gravity, pointer radii and
   sleep thresholds are all configurable.
 

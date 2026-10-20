@@ -33,6 +33,9 @@ Il contenitore principale della simulazione. Costruito con `new WasmWorld()`.
 | `set_wire_start(wire_idx, x, y)` / `set_wire_end(wire_idx, x, y)` | Sposta gli estremi fissi |
 | `get_wire_radius(wire_idx) -> f32` / `set_wire_radius(wire_idx, radius)` | Spessore del cavo (non cambia la distanza tra i nodi) |
 | `get_wire_link_distance(wire_idx) -> f32` / `set_wire_link_distance(wire_idx, distance)` | Distanza a riposo tra nodi vicini |
+| `get_wire_bend_stiffness(wire_idx) -> f32` / `set_wire_bend_stiffness(wire_idx, stiffness)` | Rigidità alla flessione, da `0` (una catena, il default) a `1`: più rigido, il cavo curva dolcemente invece di pendere a piombo e piegarsi in un punto qualsiasi. Si applica a ogni iterazione dei vincoli, quindi si somma con `constraint_iterations` (circa `1 - (1 - k)^n`). Sveglia il cavo |
+| `set_wire_end_direction(wire_idx, end, dx, dy)` | La direzione con cui il capo `end` (`0`: primo nodo, altrimenti ultimo) esce dal suo ancoraggio — una spina dal suo jack; con una rigidità alla flessione il cavo esce da quel capo lungo di essa e poi curva gradualmente. `(0, 0)` la toglie. Sveglia il cavo |
+| `get_wire_end_direction_x/y(wire_idx, end) -> f32` | Quella direzione (`0, 0` se non impostata) |
 | `get_wire_render_type(wire_idx) -> u8` / `set_wire_render_type(wire_idx, render_type)` | Tipo di rendering di un cavo (`0` = segmenti, `1` = bezier), usato dal prossimo `build_render_data` |
 | `is_wire_sleeping(wire_idx) -> bool` | Se un cavo dorme (vedi [Sospensione](#sospensione)) |
 
